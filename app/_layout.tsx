@@ -1,24 +1,70 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import 'react-native-reanimated';
-
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-export const unstable_settings = {
-  anchor: '(tabs)',
-};
+import { AlertProvider } from "@/context/alertContext";
+import { AuthProvider } from "@/context/authContext";
+import { PrefsProvider } from "@/context/prefsContext";
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
+import { Stack } from "expo-router";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import "./global.css";
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <BottomSheetModalProvider>
+        <AuthProvider>
+          <PrefsProvider>
+            <AlertProvider>
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                }}
+              >
+                <Stack.Screen
+                  name="(modals)/profileModal"
+                  options={{
+                    presentation: "modal",
+                  }}
+                />
+                <Stack.Screen
+                  name="(modals)/accountModal"
+                  options={{
+                    presentation: "modal",
+                  }}
+                />
+                <Stack.Screen
+                  name="(modals)/transactionModal"
+                  options={{
+                    presentation: "modal",
+                  }}
+                />
+                <Stack.Screen
+                  name="(modals)/notificationsModal"
+                  options={{
+                    presentation: "modal",
+                  }}
+                />
+                <Stack.Screen
+                  name="(modals)/subscriptionModal"
+                  options={{
+                    presentation: "modal",
+                  }}
+                />
+                <Stack.Screen
+                  name="(modals)/searchModal"
+                  options={{
+                    presentation: "modal",
+                  }}
+                />
+                <Stack.Screen
+                  name="(modals)/privacyPolicy"
+                  options={{
+                    presentation: "modal",
+                  }}
+                />
+              </Stack>
+            </AlertProvider>
+          </PrefsProvider>
+        </AuthProvider>
+      </BottomSheetModalProvider>
+    </GestureHandlerRootView>
   );
 }
