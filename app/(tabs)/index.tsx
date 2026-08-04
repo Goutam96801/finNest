@@ -8,17 +8,17 @@ import { useAuth } from '@/context/authContext'
 import { getAccounts } from '@/lib/services/accounts'
 import { getUnreadNotificationCount } from '@/lib/services/notifications'
 import {
-    getUpcomingSubscriptions,
-    markSubscriptionPaid,
-    skipSubscription,
-    snoozeSubscription,
-    Subscription,
+  getUpcomingSubscriptions,
+  markSubscriptionPaid,
+  skipSubscription,
+  snoozeSubscription,
+  Subscription,
 } from '@/lib/services/subscriptions'
 import {
-    AccountTotalsMap,
-    getRecentTransactions,
-    getTransactionTotals,
-    getTransactionTotalsByAccount,
+  AccountTotalsMap,
+  getRecentTransactions,
+  getTransactionTotals,
+  getTransactionTotalsByAccount,
 } from '@/lib/services/transactions'
 import { Account } from '@/lib/types'
 import { TransactionType } from '@/types'

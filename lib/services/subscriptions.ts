@@ -3,6 +3,14 @@ import { createTransaction } from '@/lib/services/transactions'
 import { ResponseType } from '@/types'
 import { supabase } from '../supabase'
 
+function queueReminderResync(userId: string) {
+  void import('@/lib/services/localReminders')
+    .then(({ resyncSubscriptionRemindersForUser }) =>
+      resyncSubscriptionRemindersForUser(userId)
+    )
+    .catch((err) => console.log('Reminder resync failed', err))
+}
+
 export type SubscriptionFrequency = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
 
 export type Subscription = {
@@ -164,7 +172,49 @@ export async function createSubscription(
     data: { subscriptionId: data.id },
   })
 
+  queueReminderResync(userId)
+
   return { success: true, data: mapSubscription(data as SubscriptionRow), msg: 'Subscription added' }
+}
+
+export async function updateSubscription(
+  userId: string,
+  subscriptionId: string,
+  input: {
+    name: string
+    amount: number
+    accountId: string
+    category: string
+    frequency: SubscriptionFrequency
+    nextDueDate: string
+    notes?: string | null
+  }
+): Promise<ResponseType> {
+  if (!userId) return { success: false, msg: 'User not authenticated' }
+  if (!subscriptionId) return { success: false, msg: 'Subscription not found' }
+  if (!input.name.trim()) return { success: false, msg: 'Name is required' }
+  if (!input.accountId) return { success: false, msg: 'Select an account' }
+  if (!(input.amount > 0)) return { success: false, msg: 'Amount must be greater than 0' }
+
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .update({
+      account_id: input.accountId,
+      name: input.name.trim(),
+      amount: input.amount,
+      category: input.category || 'others',
+      frequency: input.frequency,
+      next_due_date: input.nextDueDate,
+      notes: input.notes?.trim() || null,
+    })
+    .eq('id', subscriptionId)
+    .eq('user_id', userId)
+    .select()
+    .single()
+
+  if (error) return { success: false, msg: error.message }
+  queueReminderResync(userId)
+  return { success: true, data: mapSubscription(data as SubscriptionRow), msg: 'Subscription updated' }
 }
 
 export async function markSubscriptionPaid(userId: string, subscriptionId: string): Promise<ResponseType> {
@@ -208,6 +258,8 @@ export async function markSubscriptionPaid(userId: string, subscriptionId: strin
     data: { subscriptionId },
   })
 
+  queueReminderResync(userId)
+
   return { success: true, msg: 'Marked as paid' }
 }
 
@@ -243,6 +295,8 @@ export async function snoozeSubscription(
     data: { subscriptionId },
   })
 
+  queueReminderResync(userId)
+
   return { success: true, msg: `Snoozed by ${days} days` }
 }
 
@@ -273,6 +327,8 @@ export async function skipSubscription(userId: string, subscriptionId: string): 
     body: `Next due ${nextDue}`,
     data: { subscriptionId },
   })
+
+  queueReminderResync(userId)
 
   return { success: true, msg: 'Skipped this cycle' }
 }

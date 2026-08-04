@@ -46,6 +46,14 @@ export async function updateNotificationSettings(
     .eq('id', userId)
 
   if (error) return { success: false, msg: error.message }
+
+  // Keep local OS schedules aligned with the toggle
+  void import('@/lib/services/localReminders')
+    .then(({ resyncSubscriptionRemindersForUser }) =>
+      resyncSubscriptionRemindersForUser(userId)
+    )
+    .catch((err) => console.log('Reminder resync after settings failed', err))
+
   return { success: true, msg: 'Settings saved' }
 }
 

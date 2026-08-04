@@ -4,21 +4,24 @@ import Button from '@/components/Button'
 import DatePickerField from '@/components/DatePickerField'
 import Header from '@/components/Header'
 import Input from '@/components/Input'
+import Loading from '@/components/Loading'
 import ModalWrapper from '@/components/ModalWrapper'
 import SelectField from '@/components/SelectField'
 import Typo from '@/components/Typo'
 import { expenseCategories } from '@/constants/data'
+import { showAlert } from '@/context/alertContext'
 import { useAuth } from '@/context/authContext'
 import { getAccounts } from '@/lib/services/accounts'
 import {
   createSubscription,
+  getSubscriptionById,
   SubscriptionFrequency,
+  updateSubscription,
 } from '@/lib/services/subscriptions'
 import { Account } from '@/lib/types'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { ScrollView, View } from 'react-native'
-import { showAlert } from '@/context/alertContext'
 
 const FREQUENCY_OPTIONS: { label: string; value: SubscriptionFrequency }[] = [
   { label: 'Daily', value: 'daily' },
@@ -33,11 +36,16 @@ const todayInputValue = () => new Date().toISOString().slice(0, 10)
 const SubscriptionModal = () => {
   const { user } = useAuth()
   const router = useRouter()
+  const params = useLocalSearchParams<{ id?: string }>()
+  const subscriptionId = typeof params.id === 'string' ? params.id : undefined
+  const isEditing = Boolean(subscriptionId)
+
   const accountSheetRef = useRef<BottomSheetSelectHandle>(null)
   const categorySheetRef = useRef<BottomSheetSelectHandle>(null)
   const frequencySheetRef = useRef<BottomSheetSelectHandle>(null)
 
   const [isLoading, setIsLoading] = useState(false)
+  const [isFetching, setIsFetching] = useState(isEditing)
   const [accounts, setAccounts] = useState<Account[]>([])
   const [form, setForm] = useState({
     name: '',
@@ -53,19 +61,50 @@ const SubscriptionModal = () => {
     let active = true
     const load = async () => {
       if (!user?.id) return
-      const data = await getAccounts(user.id)
-      if (!active) return
-      setAccounts(data)
-      const preferred = data.find((a) => a.isPrimary) ?? data[0]
-      if (preferred?.id) {
-        setForm((prev) => ({ ...prev, accountId: prev.accountId || preferred.id! }))
+      try {
+        const data = await getAccounts(user.id)
+        if (!active) return
+        setAccounts(data)
+
+        if (isEditing && subscriptionId) {
+          setIsFetching(true)
+          const sub = await getSubscriptionById(user.id, subscriptionId)
+          if (!active) return
+          if (!sub) {
+            showAlert('Not found', 'This subscription no longer exists.')
+            router.back()
+            return
+          }
+          setForm({
+            name: sub.name,
+            amount: String(sub.amount),
+            accountId: sub.accountId,
+            category: sub.category || 'others',
+            frequency: sub.frequency,
+            nextDueDate: sub.nextDueDate,
+            notes: sub.notes || '',
+          })
+        } else {
+          const preferred = data.find((a) => a.isPrimary) ?? data[0]
+          if (preferred?.id) {
+            setForm((prev) => ({ ...prev, accountId: prev.accountId || preferred.id! }))
+          }
+        }
+      } catch (error) {
+        console.log('Failed to load subscription form', error)
+        if (isEditing) {
+          showAlert('Unable to load', 'Please try again.')
+          router.back()
+        }
+      } finally {
+        if (active) setIsFetching(false)
       }
     }
-    load().catch((error) => console.log('Failed to load accounts', error))
+    void load()
     return () => {
       active = false
     }
-  }, [user?.id])
+  }, [user?.id, isEditing, subscriptionId, router])
 
   const accountOptions = useMemo(
     () =>
@@ -103,19 +142,24 @@ const SubscriptionModal = () => {
       return
     }
 
+    const payload = {
+      name: form.name,
+      amount,
+      accountId: form.accountId,
+      category: form.category,
+      frequency: form.frequency,
+      nextDueDate: form.nextDueDate,
+      notes: form.notes.trim() || null,
+    }
+
     setIsLoading(true)
     try {
-      const response = await createSubscription(user.id, {
-        name: form.name,
-        amount,
-        accountId: form.accountId,
-        category: form.category,
-        frequency: form.frequency,
-        nextDueDate: form.nextDueDate,
-        notes: form.notes.trim() || null,
-      })
+      const response =
+        isEditing && subscriptionId
+          ? await updateSubscription(user.id, subscriptionId, payload)
+          : await createSubscription(user.id, payload)
       if (!response.success) throw new Error(response.msg)
-      showAlert('Success', response.msg || 'Subscription added')
+      showAlert('Success', response.msg || (isEditing ? 'Subscription updated' : 'Subscription added'))
       router.back()
     } catch (error: any) {
       showAlert('Unable to save', error?.message ?? 'Please try again.')
@@ -127,80 +171,95 @@ const SubscriptionModal = () => {
   return (
     <ModalWrapper>
       <View className="flex-1 px-5">
-        <Header title="Add Subscription" leftIcon={<BackButton />} className="mb-[10px]" />
-        <ScrollView contentContainerStyle={{ paddingTop: 15, paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
-          <View className="gap-[10px]">
-            <Typo color="#e5e5e5">Name</Typo>
-            <Input
-              placeholder="Netflix"
-              value={form.name}
-              onChangeText={(value) => setForm((prev) => ({ ...prev, name: value }))}
-            />
+        <Header
+          title={isEditing ? 'Edit Subscription' : 'Add Subscription'}
+          leftIcon={<BackButton />}
+          className="mb-[10px]"
+        />
+        {isFetching ? (
+          <Loading />
+        ) : (
+          <ScrollView
+            contentContainerStyle={{ paddingTop: 15, paddingBottom: 24 }}
+            showsVerticalScrollIndicator={false}
+          >
+            <View className="gap-[10px]">
+              <Typo color="#e5e5e5">Name</Typo>
+              <Input
+                placeholder="Netflix"
+                value={form.name}
+                onChangeText={(value) => setForm((prev) => ({ ...prev, name: value }))}
+              />
 
-            <Typo color="#e5e5e5" className="mt-2">
-              Amount
-            </Typo>
-            <Input
-              placeholder="0"
-              keyboardType="numeric"
-              value={form.amount}
-              onChangeText={(value) => setForm((prev) => ({ ...prev, amount: value.replace(/[^0-9.]/g, '') }))}
-            />
+              <Typo color="#e5e5e5" className="mt-2">
+                Amount
+              </Typo>
+              <Input
+                placeholder="0"
+                keyboardType="numeric"
+                value={form.amount}
+                onChangeText={(value) =>
+                  setForm((prev) => ({ ...prev, amount: value.replace(/[^0-9.]/g, '') }))
+                }
+              />
 
-            <Typo color="#e5e5e5" className="mt-2">
-              Account
-            </Typo>
-            <SelectField
-              valueLabel={accountOptions.find((o) => o.value === form.accountId)?.label ?? ''}
-              placeholder="Select account"
-              onPress={() => accountSheetRef.current?.present()}
-            />
+              <Typo color="#e5e5e5" className="mt-2">
+                Account
+              </Typo>
+              <SelectField
+                valueLabel={accountOptions.find((o) => o.value === form.accountId)?.label ?? ''}
+                placeholder="Select account"
+                onPress={() => accountSheetRef.current?.present()}
+              />
 
-            <Typo color="#e5e5e5" className="mt-2">
-              Category
-            </Typo>
-            <SelectField
-              valueLabel={categoryOptions.find((o) => o.value === form.category)?.label ?? ''}
-              placeholder="Select category"
-              onPress={() => categorySheetRef.current?.present()}
-            />
+              <Typo color="#e5e5e5" className="mt-2">
+                Category
+              </Typo>
+              <SelectField
+                valueLabel={categoryOptions.find((o) => o.value === form.category)?.label ?? ''}
+                placeholder="Select category"
+                onPress={() => categorySheetRef.current?.present()}
+              />
 
-            <Typo color="#e5e5e5" className="mt-2">
-              Frequency
-            </Typo>
-            <SelectField
-              valueLabel={FREQUENCY_OPTIONS.find((o) => o.value === form.frequency)?.label ?? ''}
-              placeholder="Select frequency"
-              onPress={() => frequencySheetRef.current?.present()}
-            />
+              <Typo color="#e5e5e5" className="mt-2">
+                Frequency
+              </Typo>
+              <SelectField
+                valueLabel={FREQUENCY_OPTIONS.find((o) => o.value === form.frequency)?.label ?? ''}
+                placeholder="Select frequency"
+                onPress={() => frequencySheetRef.current?.present()}
+              />
 
-            <Typo color="#e5e5e5" className="mt-2">
-              Next due date
-            </Typo>
-            <DatePickerField
-              value={form.nextDueDate}
-              onChange={(value) => setForm((prev) => ({ ...prev, nextDueDate: value }))}
-            />
+              <Typo color="#e5e5e5" className="mt-2">
+                Next due date
+              </Typo>
+              <DatePickerField
+                value={form.nextDueDate}
+                onChange={(value) => setForm((prev) => ({ ...prev, nextDueDate: value }))}
+              />
 
-            <Typo color="#e5e5e5" className="mt-2">
-              Notes
-            </Typo>
-            <Input
-              placeholder="Optional"
-              value={form.notes}
-              onChangeText={(value) => setForm((prev) => ({ ...prev, notes: value }))}
-            />
-          </View>
-        </ScrollView>
+              <Typo color="#e5e5e5" className="mt-2">
+                Notes
+              </Typo>
+              <Input
+                placeholder="Optional"
+                value={form.notes}
+                onChangeText={(value) => setForm((prev) => ({ ...prev, notes: value }))}
+              />
+            </View>
+          </ScrollView>
+        )}
       </View>
 
-      <View className="mt-6 mb-[5px] border-t border-[#404040] px-5 pt-[15px]">
-        <Button loading={isLoading} onPress={handleSave}>
-          <Typo fontWeight="700" color="#000">
-            Add Subscription
-          </Typo>
-        </Button>
-      </View>
+      {!isFetching ? (
+        <View className="mt-6 mb-[5px] border-t border-[#404040] px-5 pt-[15px]">
+          <Button loading={isLoading} onPress={handleSave}>
+            <Typo fontWeight="700" color="#000">
+              {isEditing ? 'Update Subscription' : 'Add Subscription'}
+            </Typo>
+          </Button>
+        </View>
+      ) : null}
 
       <BottomSheetSelect
         ref={accountSheetRef}
@@ -221,7 +280,9 @@ const SubscriptionModal = () => {
         title="Frequency"
         options={FREQUENCY_OPTIONS}
         value={form.frequency}
-        onChange={(value) => setForm((prev) => ({ ...prev, frequency: value as SubscriptionFrequency }))}
+        onChange={(value) =>
+          setForm((prev) => ({ ...prev, frequency: value as SubscriptionFrequency }))
+        }
       />
     </ModalWrapper>
   )

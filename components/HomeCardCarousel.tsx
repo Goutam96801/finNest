@@ -5,7 +5,7 @@ import { AccountTotalsMap } from '@/lib/services/transactions'
 import { Account } from '@/lib/types'
 import { verticalScale } from '@/utils/styling'
 import { ArrowDown, ArrowUp, Eye, EyeSlash } from 'phosphor-react-native'
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   Dimensions,
   ImageBackground,
@@ -44,9 +44,15 @@ const HomeCardCarousel = ({
   accountTotals = {},
   currencySymbol = '₹',
 }: HomeCardCarouselProps) => {
-  const { balanceVisible, setBalanceVisible } = usePrefs()
+  const { balanceVisible: preferenceVisible } = usePrefs()
+  // Session-only reveal; does not change Settings / persisted preference.
+  const [sessionVisible, setSessionVisible] = useState(preferenceVisible)
   const [page, setPage] = useState(0)
   const scrollRef = useRef<ScrollView>(null)
+
+  useEffect(() => {
+    setSessionVisible(preferenceVisible)
+  }, [preferenceVisible])
 
   const onScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const next = Math.round(event.nativeEvent.contentOffset.x / CARD_WIDTH)
@@ -86,10 +92,12 @@ const HomeCardCarousel = ({
   ]
 
   const displayAmount = (amount: number) =>
-    balanceVisible ? `${currencySymbol}${formatAmount(amount)}` : `${currencySymbol}${HIDDEN_BALANCE}`
+    sessionVisible ? `${currencySymbol}${formatAmount(amount)}` : `${currencySymbol}${HIDDEN_BALANCE}`
 
   const displayStat = (amount: number) =>
-    balanceVisible ? `${currencySymbol} ${formatAmount(amount)}` : `${currencySymbol} ${HIDDEN_BALANCE}`
+    sessionVisible
+      ? `${currencySymbol} ${formatAmount(amount)}`
+      : `${currencySymbol} ${HIDDEN_BALANCE}`
 
   return (
     <View>
@@ -132,11 +140,11 @@ const HomeCardCarousel = ({
                   </View>
 
                   <TouchableOpacity
-                    onPress={() => setBalanceVisible(!balanceVisible)}
+                    onPress={() => setSessionVisible((prev) => !prev)}
                     hitSlop={12}
                     activeOpacity={0.7}
                   >
-                    {balanceVisible ? (
+                    {sessionVisible ? (
                       <Eye size={verticalScale(24)} color="#262626" weight="bold" />
                     ) : (
                       <EyeSlash size={verticalScale(24)} color="#262626" weight="bold" />

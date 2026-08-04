@@ -27,12 +27,10 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 function isAuthCallbackUrl(url: string) {
   const normalized = url.toLowerCase()
-  // Explicit callback route only — do NOT match "(auth)/login" etc.
   if (normalized.includes('auth/callback')) return true
   if (normalized.includes('access_token=')) return true
   if (normalized.includes('refresh_token=')) return true
   if (normalized.includes('token_hash=')) return true
-  // PKCE code on callback-style links
   if (normalized.includes('code=') && normalized.includes('callback')) return true
   return false
 }
@@ -43,22 +41,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [loading, setLoading] = useState(true)
   const router = useRouter()
   const handlingUrl = useRef(false)
-  const hasRouted = useRef(false)
 
   useEffect(() => {
     let mounted = true
 
+    // Resolve session only — cold-start navigation is handled by SplashGate
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return
       setSession(data.session ?? null)
       setUser(data.session?.user ?? null)
       setLoading(false)
-
-      // Cold start routing (don't wait for SIGNED_IN)
-      if (!hasRouted.current) {
-        hasRouted.current = true
-        router.replace(data.session ? '/(tabs)' : '/(auth)/welcome')
-      }
     })
 
     const {
@@ -71,14 +63,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoading(false)
 
       if (event === 'SIGNED_OUT') {
-        hasRouted.current = true
         router.replace('/(auth)/welcome')
         return
       }
 
-      // Fresh login / signup only — not session restore (INITIAL_SESSION)
+      // Login / signup only (not INITIAL_SESSION restore)
       if (event === 'SIGNED_IN') {
-        hasRouted.current = true
+        try {
+          if (router.canDismiss()) router.dismissAll()
+        } catch {
+          // ignore
+        }
         router.replace('/(tabs)')
       }
     })
@@ -89,7 +84,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, [router])
 
-  // Email-confirm deep links only
   useEffect(() => {
     const handleUrl = async (url: string | null) => {
       if (!url || handlingUrl.current) return
@@ -101,7 +95,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
         if (result.success) {
           const latest = await refreshAuthUser()
           if (latest) setUser(latest)
-          hasRouted.current = true
+          try {
+            if (router.canDismiss()) router.dismissAll()
+          } catch {
+            // ignore
+          }
           router.replace('/(tabs)')
         } else {
           console.log('Auth deep link ignored/failed', result.msg)
@@ -122,7 +120,6 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return () => sub.remove()
   }, [router])
 
-  // Refresh user when returning from mail app (email change)
   useEffect(() => {
     const onAppState = async (state: AppStateStatus) => {
       if (state !== 'active') return

@@ -187,7 +187,7 @@ const SettingsScreen = () => {
             <SectionLabel>Preferences</SectionLabel>
             <SettingsRow
               title="Hide balances"
-              subtitle="Remember home eye preference"
+              subtitle="Default when you open the app"
               icon={<Icons.EyeSlash size={20} color="#fff" weight="fill" />}
               bgColor="#525252"
               right={
@@ -212,7 +212,7 @@ const SettingsScreen = () => {
             <SectionLabel>Notifications</SectionLabel>
             <SettingsRow
               title="Subscription reminders"
-              subtitle="Due / snooze alerts"
+              subtitle="1 day before and on due date (9:00 AM)"
               icon={<Icons.Bell size={20} color="#fff" weight="fill" />}
               bgColor="#7c3aed"
               right={

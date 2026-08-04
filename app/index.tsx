@@ -1,24 +1,9 @@
-import { useAuth } from '@/context/authContext'
-import { useRouter } from 'expo-router'
-import { useEffect } from 'react'
-import { Image, View } from 'react-native'
+import { View } from 'react-native'
 
+/**
+ * Boot placeholder. SplashGate in root layout performs the real redirect
+ * after dismissing any restored modals (e.g. Update Profile).
+ */
 export default function Index() {
-  const router = useRouter()
-  const { session, loading } = useAuth()
-
-  useEffect(() => {
-    if (loading) return
-    router.replace(session ? '/(tabs)' : '/(auth)/welcome')
-  }, [loading, session, router])
-
-  return (
-    <View className="flex-1 items-center justify-center bg-[#171717]">
-      <Image
-        resizeMode="contain"
-        source={require('../assets/images/splashImage.png')}
-        className="h-[20%] aspect-square"
-      />
-    </View>
-  )
+  return <View style={{ flex: 1, backgroundColor: '#000' }} />
 }

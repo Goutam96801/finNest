@@ -14,6 +14,8 @@ import {
   BottomSheetScrollView,
   type BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet'
+import { useRouter } from 'expo-router'
+import { PencilSimple } from 'phosphor-react-native'
 import React, {
   forwardRef,
   useCallback,
@@ -88,6 +90,7 @@ const NotificationDetailSheet = forwardRef<
 >(({ userId, onActionComplete }, ref) => {
   const sheetRef = useRef<BottomSheetModal>(null)
   const insets = useSafeAreaInsets()
+  const router = useRouter()
   const snapPoints = useMemo(() => ['48%', '62%'], [])
 
   const [notification, setNotification] = useState<AppNotification | null>(null)
@@ -175,9 +178,27 @@ const NotificationDetailSheet = forwardRef<
       >
         {subscriptionId && subscription ? (
           <>
-            <Typo size={18} fontWeight="600" color="#f5f5f5">
-              {subscription.name}
-            </Typo>
+            <View className="flex-row items-center gap-2">
+              <Typo size={18} fontWeight="600" color="#f5f5f5" className="shrink">
+                {subscription.name}
+              </Typo>
+              <TouchableOpacity
+                onPress={() => {
+                  const id = subscription.id
+                  sheetRef.current?.dismiss()
+                  setTimeout(() => {
+                    router.push({
+                      pathname: '/(modals)/subscriptionModal',
+                      params: { id },
+                    })
+                  }, 10)
+                }}
+                hitSlop={10}
+                activeOpacity={0.7}
+              >
+                <PencilSimple size={18} color="#a3e635" weight="bold" />
+              </TouchableOpacity>
+            </View>
             {notification?.createdAt ? (
               <Typo size={12} color="#737373" className="mt-1">
                 {formatNotificationTime(notification.createdAt)}

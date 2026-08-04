@@ -2,6 +2,7 @@ import Typo from '@/components/Typo'
 import { showAlert } from '@/context/alertContext'
 import { Subscription } from '@/lib/services/subscriptions'
 import { verticalScale } from '@/utils/styling'
+import { useRouter } from 'expo-router'
 import { Plus } from 'phosphor-react-native'
 import React from 'react'
 import { ScrollView, TouchableOpacity, View } from 'react-native'
@@ -29,6 +30,15 @@ const UpcomingSubscriptions = ({
   onSnooze,
   onSkip,
 }: UpcomingSubscriptionsProps) => {
+  const router = useRouter()
+
+  const openEdit = (id: string) => {
+    router.push({
+      pathname: '/(modals)/subscriptionModal',
+      params: { id },
+    })
+  }
+
   const openActions = (item: Subscription) => {
     showAlert(
       item.name,
@@ -48,7 +58,10 @@ const UpcomingSubscriptions = ({
           style: 'destructive',
           onPress: () => onSkip?.(item.id),
         },
-      ]
+      ],
+      {
+        onTitleAction: () => openEdit(item.id),
+      }
     )
   }
 

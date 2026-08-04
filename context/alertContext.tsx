@@ -1,6 +1,6 @@
 import Typo from '@/components/Typo'
 import { colors, radius } from '@/constants/theme'
-import { X } from 'phosphor-react-native'
+import { PencilSimple, X } from 'phosphor-react-native'
 import React, {
   createContext,
   useCallback,
@@ -29,6 +29,8 @@ export type AppAlertOptions = {
   buttons?: AppAlertButton[]
   /** Show X and allow backdrop dismiss. Default true. */
   dismissible?: boolean
+  /** Icon-only action shown just right of the title (e.g. edit). */
+  onTitleAction?: () => void
 }
 
 type AlertContextValue = {
@@ -45,9 +47,10 @@ let externalAlert: AlertHandler | null = null
 export function showAlert(
   title: string,
   message?: string,
-  buttons?: AppAlertButton[]
+  buttons?: AppAlertButton[],
+  extras?: Pick<AppAlertOptions, 'onTitleAction' | 'dismissible'>
 ) {
-  externalAlert?.({ title, message, buttons })
+  externalAlert?.({ title, message, buttons, ...extras })
 }
 
 export function useAppAlert() {
@@ -126,9 +129,28 @@ export function AlertProvider({ children }: { children: React.ReactNode }) {
 
           <View style={styles.card}>
             <View style={styles.header}>
-              <Typo size={18} fontWeight="700" color={colors.neutral100} className="flex-1 pr-3">
+              <Typo size={18} fontWeight="700" color={colors.neutral100} className="flex-1 pr-2">
                 {options?.title}
               </Typo>
+              {options?.onTitleAction ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    const action = options.onTitleAction
+                    hide()
+                    if (action) {
+                      setTimeout(() => {
+                        void action()
+                      }, 10)
+                    }
+                  }}
+                  disabled={busy}
+                  hitSlop={12}
+                  activeOpacity={0.7}
+                  style={styles.titleActionBtn}
+                >
+                  <PencilSimple size={18} color={colors.primary} weight="bold" />
+                </TouchableOpacity>
+              ) : null}
               {dismissible ? (
                 <TouchableOpacity
                   onPress={hide}
@@ -205,6 +227,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
+    gap: 8,
+  },
+  titleActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: colors.neutral800,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.neutral700,
   },
   closeBtn: {
     width: 32,
