@@ -5,12 +5,23 @@ import ExportBottomSheet, { type ExportBottomSheetHandle } from '@/components/Ex
 import Header from '@/components/Header'
 import Input from '@/components/Input'
 import Loading from '@/components/Loading'
+import NestPurchaseSheet, {
+  type NestPlanChoice,
+  type NestPurchaseSheetHandle,
+} from '@/components/NestPurchaseSheet'
 import ScreenWrapper from '@/components/ScreenWrapper'
 import Typo from '@/components/Typo'
 import { showAlert } from '@/context/alertContext'
 import { useAuth } from '@/context/authContext'
+import { useNest } from '@/context/nestContext'
 import { usePrefs } from '@/context/prefsContext'
 import { logout } from '@/lib/services/auth'
+import {
+  cancelNestAtPeriodEnd,
+  formatNestRenewsAt,
+  nestDisplayName,
+  startNestCheckout,
+} from '@/lib/services/nest'
 import { WEEKDAY_OPTIONS, type WeekStartsOn } from '@/lib/prefs/devicePrefs'
 import {
   changeEmail,
@@ -118,11 +129,15 @@ const FormModal = ({
 const SettingsScreen = () => {
   const { user } = useAuth()
   const { balanceVisible, setBalanceVisible, weekStartsOn, setWeekStartsOn } = usePrefs()
+  const { hasNest, status: nestStatus, refresh: refreshNest } = useNest()
   const weekSheetRef = useRef<BottomSheetSelectHandle>(null)
   const exportSheetRef = useRef<ExportBottomSheetHandle>(null)
+  const nestSheetRef = useRef<NestPurchaseSheetHandle>(null)
 
   const [loading, setLoading] = useState(true)
   const [savingNotif, setSavingNotif] = useState(false)
+  const [checkoutPlan, setCheckoutPlan] = useState<NestPlanChoice | null>(null)
+  const [portalLoading, setPortalLoading] = useState(false)
   const [notif, setNotif] = useState<NotificationSettings>({
     subscriptionRemindersEnabled: true,
     lowBalanceAlertsEnabled: true,
@@ -141,6 +156,8 @@ const SettingsScreen = () => {
 
   const appVersion =
     Constants.expoConfig?.version ?? Constants.nativeAppVersion ?? '1.0.0'
+  const brandName = nestDisplayName(hasNest)
+  const renewLabel = formatNestRenewsAt(nestStatus?.nestRenewsAt ?? null)
 
   const load = useCallback(async () => {
     if (!user?.id) return
@@ -149,12 +166,13 @@ const SettingsScreen = () => {
       const settings = await getNotificationSettings(user.id)
       setNotif(settings)
       setThresholdText(String(settings.lowBalanceThreshold ?? 5000))
+      await refreshNest()
     } catch (error) {
       console.log('Failed to load settings', error)
     } finally {
       setLoading(false)
     }
-  }, [user?.id])
+  }, [user?.id, refreshNest])
 
   useEffect(() => {
     load()
@@ -172,6 +190,50 @@ const SettingsScreen = () => {
     }
   }
 
+  const handleNestPlan = async (plan: NestPlanChoice) => {
+    setCheckoutPlan(plan)
+    try {
+      const res = await startNestCheckout(plan)
+      nestSheetRef.current?.dismiss()
+      if (!res.success && res.msg && res.msg !== 'Checkout closed') {
+        showAlert('Unable to start checkout', res.msg)
+      }
+      await refreshNest()
+    } finally {
+      setCheckoutPlan(null)
+    }
+  }
+
+  const handleManageNest = async () => {
+    showAlert(
+      'Manage Nest',
+      renewLabel
+        ? `Your Nest renews on ${renewLabel}. Cancel anytime — you keep access until then.`
+        : 'Cancel Nest at the end of the current billing period?',
+      [
+        { text: 'Keep Nest', style: 'cancel' },
+        {
+          text: 'Cancel Nest',
+          style: 'destructive',
+          onPress: async () => {
+            setPortalLoading(true)
+            try {
+              const res = await cancelNestAtPeriodEnd()
+              if (!res.success) {
+                showAlert('Unable to cancel', res.msg || 'Please try again.')
+              } else {
+                showAlert('Scheduled', res.msg || 'Nest will end after this period.')
+                await refreshNest()
+              }
+            } finally {
+              setPortalLoading(false)
+            }
+          },
+        },
+      ]
+    )
+  }
+
   return (
     <ScreenWrapper style={{ backgroundColor: '#000' }}>
       <View className="flex-1 px-5">
@@ -184,6 +246,39 @@ const SettingsScreen = () => {
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 40 }}
           >
+            <SectionLabel>Nest</SectionLabel>
+            {hasNest ? (
+              <SettingsRow
+                title="Manage Nest"
+                subtitle={
+                  renewLabel
+                    ? `Active · renews ${renewLabel}`
+                    : 'Active · WhatsApp, sharing, Look & more'
+                }
+                icon={<Icons.Crown size={20} color="#000" weight="fill" />}
+                bgColor="#a3e635"
+                onPress={() => {
+                  if (portalLoading) return
+                  void handleManageNest()
+                }}
+                right={
+                  portalLoading ? (
+                    <ActivityIndicator color="#a3e635" />
+                  ) : (
+                    <Icons.CaretRight size={verticalScale(18)} color="#a3a3a3" weight="bold" />
+                  )
+                }
+              />
+            ) : (
+              <SettingsRow
+                title="Upgrade to Nest"
+                subtitle="₹99/mo or ₹999/yr · unlock FinNest"
+                icon={<Icons.Crown size={20} color="#000" weight="fill" />}
+                bgColor="#a3e635"
+                onPress={() => nestSheetRef.current?.present()}
+              />
+            )}
+
             <SectionLabel>Preferences</SectionLabel>
             <SettingsRow
               title="Hide balances"
@@ -365,8 +460,15 @@ const SettingsScreen = () => {
           <View className="flex-row items-center gap-1.5">
             <Icons.Tag size={14} color="#737373" weight="bold" />
             <Typo size={12} color="#737373">
-              Version {appVersion}
+              {brandName} · Version {appVersion}
             </Typo>
+            {hasNest ? (
+              <View className="rounded-full bg-[#a3e635]/20 px-1.5 py-0.5">
+                <Typo size={10} fontWeight="700" color="#a3e635">
+                  Nest
+                </Typo>
+              </View>
+            ) : null}
           </View>
         </View>
       </View>
@@ -517,6 +619,13 @@ const SettingsScreen = () => {
         onChange={(value) => setWeekStartsOn(Number(value) as WeekStartsOn)}
       />
 
+      <NestPurchaseSheet
+        ref={nestSheetRef}
+        loadingPlan={checkoutPlan}
+        onSelect={(plan) => {
+          void handleNestPlan(plan)
+        }}
+      />
       <ExportBottomSheet ref={exportSheetRef} userId={user?.id} />
     </ScreenWrapper>
   )

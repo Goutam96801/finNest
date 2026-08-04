@@ -1,5 +1,6 @@
 import { AlertProvider } from '@/context/alertContext'
 import { AuthProvider, useAuth } from '@/context/authContext'
+import { NestProvider } from '@/context/nestContext'
 import { PrefsProvider } from '@/context/prefsContext'
 import { SubscriptionRemindersProvider } from '@/context/subscriptionRemindersContext'
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
@@ -116,6 +117,7 @@ export default function RootLayout() {
         <AuthProvider>
           <PrefsProvider>
             <AlertProvider>
+              <NestProvider>
               <SubscriptionRemindersProvider>
               <SplashGate>
                 <Stack
@@ -130,6 +132,9 @@ export default function RootLayout() {
                   <Stack.Screen name="(auth)/register" />
                   <Stack.Screen name="transactions" />
                   <Stack.Screen name="subscriptions" />
+                  <Stack.Screen name="settings" />
+                  <Stack.Screen name="nest/success" />
+                  <Stack.Screen name="nest/cancel" />
                   <Stack.Screen name="(modals)/profileModal" options={modalOptions} />
                   <Stack.Screen name="(modals)/accountModal" options={modalOptions} />
                   <Stack.Screen name="(modals)/transactionModal" options={modalOptions} />
@@ -140,6 +145,7 @@ export default function RootLayout() {
                 </Stack>
               </SplashGate>
               </SubscriptionRemindersProvider>
+              </NestProvider>
             </AlertProvider>
           </PrefsProvider>
         </AuthProvider>

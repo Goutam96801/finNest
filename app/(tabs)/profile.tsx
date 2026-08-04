@@ -1,9 +1,12 @@
 import Header from '@/components/Header'
 import ScreenWrapper from '@/components/ScreenWrapper'
 import Typo from '@/components/Typo'
+import { showAlert } from '@/context/alertContext'
 import { useAuth } from '@/context/authContext'
+import { useNest } from '@/context/nestContext'
 import { logout } from '@/lib/services/auth'
 import { getProfileImage } from '@/lib/services/image-service'
+import { nestDisplayName } from '@/lib/services/nest'
 import { accountOptionType } from '@/types'
 import { verticalScale } from '@/utils/styling'
 import { Image } from 'expo-image'
@@ -11,11 +14,13 @@ import { useRouter } from 'expo-router'
 import * as Icons from 'phosphor-react-native'
 import React from 'react'
 import { StyleSheet, TouchableOpacity, View } from 'react-native'
-import { showAlert } from '@/context/alertContext'
 import Animated, { FadeInDown } from 'react-native-reanimated'
+
 const Profile = () => {
     const { user } = useAuth();
+    const { hasNest } = useNest();
     const router = useRouter();
+    const brand = nestDisplayName(hasNest);
 
     const accountOptions: accountOptionType[] = [
         {
@@ -114,8 +119,20 @@ const Profile = () => {
                     </View>
                     {/* name and email */}
                     <View className='gap-1 items-center'>
-                        <Typo size={24} fontWeight={'600'} color='#f5f5f5'>{user?.user_metadata.display_name}</Typo>
+                        <View className="flex-row items-center gap-2">
+                          <Typo size={24} fontWeight={'600'} color='#f5f5f5'>{user?.user_metadata.display_name}</Typo>
+                          {hasNest ? (
+                            <View className="rounded-full bg-[#a3e635]/20 px-2 py-0.5">
+                              <Typo size={11} fontWeight="700" color="#a3e635">
+                                Nest
+                              </Typo>
+                            </View>
+                          ) : null}
+                        </View>
                         <Typo size={15} color='#a3a3a3'>{user?.email}</Typo>
+                        <Typo size={12} color="#737373" className="mt-1">
+                          {brand}
+                        </Typo>
                     </View>
                 </View>
 
