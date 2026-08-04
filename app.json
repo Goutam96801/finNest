@@ -62,9 +62,15 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "6725c9f4-609d-4783-aedf-7c7da4426fa8"
+        "projectId": "bb5e0457-ec52-461c-a1da-4872a8ab30d1"
       }
     },
-    "owner": "goutam96801"
+    "owner": "goutam96801",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/bb5e0457-ec52-461c-a1da-4872a8ab30d1"
+    }
   }
 }
