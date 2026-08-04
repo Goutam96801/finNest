@@ -9,6 +9,7 @@ const Typo = ({
     fontWeight = '400',
     children,
     className,
+    style,
     textProps = {}
 }: TypoProps) => {
     const textStyle: TextStyle = {
@@ -17,7 +18,7 @@ const Typo = ({
         fontWeight,
     }
     return (
-        <Text style={[textStyle]} className={className} {...textProps}>{children}</Text>
+        <Text style={[textStyle, style]} className={className} {...textProps}>{children}</Text>
     )
 }
 
