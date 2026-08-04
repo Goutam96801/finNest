@@ -269,190 +269,135 @@ Expected: no output (these six names are not consumed by client code).
 
 ---
 
-## Task 5: Create the Expo access token and GitHub secret (manual, one-time)
+## Task 5 ~~Create the Expo access token and GitHub secret~~ — SKIPPED (superseded)
 
-**Files:** none — dashboard/CLI only.
-
-These two steps require your own account access and can't be scripted by an agent.
-
-- [ ] **Step 1: Create a robot/personal access token**
-
-Go to [expo.dev/settings/access-tokens](https://expo.dev/settings/access-tokens) → **Create token** → name it `github-actions-finnest` → copy the value once (it's shown only once).
-
-- [ ] **Step 2: Add it as a GitHub repository secret**
-
-Go to `https://github.com/Goutam96801/finNest/settings/secrets/actions` → **New repository secret**:
-- Name: `EXPO_TOKEN`
-- Value: the token from Step 1
-
-- [ ] **Step 3: Verify**
-
-The secret should appear (value hidden) in the Actions secrets list. This is the **only** GitHub secret this pipeline needs.
+> **Superseded 2026-08-04.** You told me you'd already created the `finNest` project on expo.dev and connected it to GitHub via the project's GitHub settings page. That connection enables **EAS Workflows** — a first-party CI/CD system that runs on EAS's own infrastructure and triggers directly from GitHub push events, with automatic access to EAS Environment Variables. This makes GitHub Actions and an `EXPO_TOKEN` secret **unnecessary** for this pipeline: no GitHub secret of any kind is needed. Tasks 6 and 7 below were rewritten to use EAS Workflows (`.eas/workflows/*.yml`) instead of GitHub Actions (`.github/workflows/*.yml`).
+>
+> If you ever want a *second*, independent CI path (e.g. because you also want other GitHub-Actions-only automation), the original GitHub Actions version of this plan is preserved in git history at commit `19c99c8` and earlier revisions of this file — the `EXPO_TOKEN` steps described there still work and can be layered on top without conflicting with EAS Workflows.
 
 ---
 
-## Task 6: GitHub Actions workflow — auto-publish OTA update on push to `prod`
+## Task 6: EAS Workflow — auto-publish OTA update on push to `prod` ✅ Done
+
+> **Completed 2026-08-04.** Created `.eas/workflows/production-update.yml` (committed as `ci: add EAS Workflows for auto-publish and manual build`, `e0a357e`). Along the way, `npm run lint` and `npx tsc --noEmit` turned up pre-existing failures that would have permanently blocked this pipeline — fixed and committed separately (`fix: resolve lint and type-check errors blocking CI`, `4cf9e1f`): two unescaped `'` characters in `app/(auth)/login.tsx` and `app/(auth)/register.tsx` (`react/no-unescaped-entities`); `tsconfig.json` was type-checking the Deno-runtime `supabase/functions/**` folder (added to `exclude`); `types.ts` imported the unused `firebase/firestore` package (removed, project uses Supabase); `Typo` component didn't accept a `style` prop that `privacyPolicy.tsx` was passing (added `style?: TextStyle` to `TypoProps` and forwarded it); and `InputProps.inputRef` was typed as `RefObject<TextInput>` when React 19's `useRef` produces `RefObject<TextInput | null>` (updated the type).
 
 **Files:**
-- Create: `.github/workflows/eas-update-prod.yml`
+- Create: `.eas/workflows/production-update.yml`
 
 **Interfaces:**
-- Consumes: `EXPO_TOKEN` secret (Task 5), `production` EAS environment (Task 3), `production` channel (Task 2).
+- Consumes: `production` EAS environment (Task 3), `production` channel (Task 2). No GitHub secret needed — EAS Workflows authenticate to EAS automatically.
 
-- [ ] **Step 1: Create the workflow file**
+- [x] **Step 1: Create the workflow file**
 
 ```yaml
-name: EAS Update (production)
+name: Production OTA Update
 
 on:
   push:
-    branches:
-      - prod
-
-concurrency:
-  group: eas-update-production
-  cancel-in-progress: true
+    branches: ['prod']
 
 jobs:
-  update:
-    name: Publish EAS Update
-    runs-on: ubuntu-latest
+  checks:
+    name: Lint, type-check, and validate config
     steps:
-      - name: Check for EXPO_TOKEN
-        run: |
-          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
-            echo "Missing EXPO_TOKEN secret. Add it under Settings > Secrets and variables > Actions."
-            exit 1
-          fi
-
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Install dependencies
-        run: npm ci
-
+      - uses: eas/checkout
+      - uses: eas/install_node_modules
       - name: Lint
         run: npm run lint
-
       - name: Type-check
         run: npx tsc --noEmit
-
       - name: Validate Expo config
         run: npx expo-doctor
 
-      - name: Publish update to production
-        run: |
-          npx eas-cli update \
-            --branch production \
-            --channel production \
-            --environment production \
-            --message "${{ github.event.head_commit.message }}" \
-            --non-interactive
+  publish_update:
+    name: Publish EAS Update to production
+    needs: [checks]
+    type: update
+    environment: production
+    params:
+      channel: production
+      message: ${{ github.commit_message }}
 ```
 
-> Every step before "Publish update" is a quality gate: if lint, `tsc`, or `expo-doctor` fails, the job stops and no update is published — a broken commit on `prod` never reaches users.
+> `needs: [checks]` means `publish_update` only runs if `checks` succeeds — a broken commit on `prod` never reaches users. `type: update` is a pre-packaged EAS Workflows job; it auto-checks-out the repo, installs deps, and runs `npx expo export` + publish internally, using the EAS Environment Variables from the `production` environment (Task 3) to inline `EXPO_PUBLIC_*` values into the bundle.
 
-- [ ] **Step 2: Commit and push to `prod` to trigger it for the first time**
+- [x] **Step 2: Commit**
 
 ```sh
-git add .github/workflows/eas-update-prod.yml
-git commit -m "ci: auto-publish EAS Update on push to prod"
+git add .eas/workflows/production-update.yml
+git commit -m "ci: add EAS Workflows for auto-publish and manual build"
+```
+
+- [ ] **Step 3: Push to `prod` to trigger it for real** (the manual validation in Task 8 used `eas workflow:run` instead, which doesn't require a push)
+
+```sh
 git push origin prod
 ```
 
-- [ ] **Step 3: Verify in GitHub**
+- [ ] **Step 4: Verify on the dashboard**
 
-Open `https://github.com/Goutam96801/finNest/actions`, confirm the "EAS Update (production)" run is green, and that the final step's log prints an update page URL like `https://expo.dev/accounts/goutam96801/projects/finnest/updates/<update-id>`.
+Open `https://expo.dev/accounts/goutam96801/projects/finnest/workflows`, confirm the "Production OTA Update" run is green, and that the `publish_update` job's output includes a link to the new update group.
 
 ---
 
-## Task 7: (Optional) Manual GitHub Actions workflow for a real Android APK build
+## Task 7: (Optional) EAS Workflow for a manual real Android APK build ✅ Done
+
+> **Completed 2026-08-04.** Created `.eas/workflows/build-manual.yml`, committed alongside Task 6 in `e0a357e`.
 
 **Files:**
-- Create: `.github/workflows/eas-build-prod.yml`
+- Create: `.eas/workflows/build-manual.yml`
 
 **Interfaces:**
-- Consumes: `EXPO_TOKEN` secret (Task 5), `production` build profile from `eas.json` (Task 2).
+- Consumes: `preview`/`production` build profiles from `eas.json` (Task 2), which resolve their own `environment` for EAS Environment Variables automatically.
 
 This is deliberately **manual** (`workflow_dispatch`), not triggered on every push, to conserve the Free plan's 15 Android builds/month.
 
-- [ ] **Step 1: Create the workflow file**
+- [x] **Step 1: Create the workflow file**
 
 ```yaml
-name: EAS Build (manual)
+name: Manual Android Build
 
 on:
   workflow_dispatch:
     inputs:
       profile:
-        description: "eas.json build profile"
-        required: true
-        default: "preview"
         type: choice
+        description: 'eas.json build profile'
         options:
           - preview
           - production
+        default: preview
+        required: true
 
 jobs:
-  build:
-    name: Build Android with EAS
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check for EXPO_TOKEN
-        run: |
-          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
-            echo "Missing EXPO_TOKEN secret. Add it under Settings > Secrets and variables > Actions."
-            exit 1
-          fi
-
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npx eas-cli build --platform android --profile ${{ inputs.profile }} --non-interactive --wait
+  build_android:
+    name: Build Android
+    type: build
+    params:
+      platform: android
+      profile: ${{ inputs.profile }}
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```sh
-git add .github/workflows/eas-build-prod.yml
-git commit -m "ci: add manual EAS Build workflow for Android APK"
+git add .eas/workflows/build-manual.yml
+git commit -m "ci: add EAS Workflows for auto-publish and manual build"
 ```
 
 - [ ] **Step 3: Verify by running it once**
 
-In GitHub, go to **Actions → EAS Build (manual) → Run workflow**, pick `preview`, run it, and confirm it finishes with a downloadable `.apk` link in the job log / on the [expo.dev builds page](https://expo.dev/accounts/goutam96801/projects/finnest/builds).
+```sh
+npx eas-cli@latest workflow:run .eas/workflows/build-manual.yml
+```
+
+Follow the prompt to choose a `profile`, or pass it non-interactively — check `eas workflow:run --help` for the current flag, since `workflow_dispatch` inputs are primarily documented for the `eas workflow:run` CLI path (the expo.dev dashboard "Run" button may only support workflows without required inputs, in which case add a `default` for every input, which this workflow already does). Confirm it finishes with a downloadable `.apk` link on the [expo.dev builds page](https://expo.dev/accounts/goutam96801/projects/finnest/builds).
 
 ---
 
-## Task 8: End-to-end verification
+## Task 8: End-to-end verification 🔄 In progress
+
+> **Started 2026-08-04.** Ran `npx eas-cli@latest workflow:run .eas/workflows/production-update.yml` (a manual trigger, equivalent to Step 1-2 below but without needing a real push) — see run `019fcd0c-c98c-72e3-b4a9-840c0fe8972e` at `https://expo.dev/accounts/goutam96801/projects/finNest/workflows/019fcd0c-c98c-72e3-b4a9-840c0fe8972e`. As of the last check it was still `IN_PROGRESS` on the `checks` job (queued — Free plan uses a low-priority worker queue, see Global Constraints). Check the link above for the current status; re-run `npx eas-cli@latest workflow:view <run-id>` to poll.
 
 - [ ] **Step 1: Make a trivial, visible JS change** (e.g., tweak a label in `app/`), then:
 
@@ -462,11 +407,11 @@ git commit -m "test: verify OTA pipeline"
 git push origin prod
 ```
 
-- [ ] **Step 2: Watch the Action run to green** at `https://github.com/Goutam96801/finNest/actions`.
+- [ ] **Step 2: Watch the workflow run to green** at `https://expo.dev/accounts/goutam96801/projects/finnest/workflows` (or poll with `npx eas-cli@latest workflow:runs` / `workflow:view <run-id>`).
 
 - [ ] **Step 3: Open the update in Expo Go**
 
-From the Action log or the [Deployments page](https://expo.dev/accounts/goutam96801/projects/finnest/updates), open the latest update's detail page — it shows a QR code and an `exp://...` link. Scan the QR with the Expo Go app (or open the link on a device with Expo Go installed).
+From the workflow run's `publish_update` job output, or the [Deployments page](https://expo.dev/accounts/goutam96801/projects/finnest/updates), open the latest update's detail page — it shows a QR code and an `exp://...` link. Scan the QR with the Expo Go app (or open the link on a device with Expo Go installed).
 
 Expected: the app loads showing your trivial change.
 
@@ -496,8 +441,8 @@ npx eas-cli@latest update:republish --channel production --group <good-update-gr
 
 | What | Where | Who/what reads it |
 | --- | --- | --- |
-| `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_KEY` | EAS Environment Variables (`production` + `preview`) | `eas update` / `eas build` in CI, and `eas env:pull` locally |
-| `EXPO_TOKEN` | GitHub repo secret | GitHub Actions only, to authenticate `eas` CLI |
+| `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_KEY` | EAS Environment Variables (`production` + `preview`) | `eas update` / `eas build` and EAS Workflows jobs, and `eas env:pull` locally |
+| *(nothing — no GitHub secret needed)* | — | EAS Workflows run on EAS's own infrastructure and authenticate automatically via the GitHub App connection on the project |
 | `RAZORPAY_*`, `SUPABASE_DB_PASSWORD` | Supabase Edge Function secrets | Supabase Edge Functions only — never in the mobile repo |
 | Local dev copies of the two public vars | `.env.local` (git-ignored) | `npx expo start` on your machine |
 | Variable **names** only, no values | `.env.example` (committed) | New contributors, for reference |
