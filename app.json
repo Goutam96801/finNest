@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "FinNest",
-    "slug": "finnest-mob",
+    "slug": "finnest",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -58,6 +58,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "6725c9f4-609d-4783-aedf-7c7da4426fa8"
+      }
+    },
+    "owner": "goutam96801"
   }
 }
