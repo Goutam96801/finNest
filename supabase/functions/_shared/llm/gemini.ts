@@ -75,6 +75,35 @@ function toGeminiContent(message: ChatMessage): GeminiContent {
   }
 }
 
+function sanitizeSchemaForGemini(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeSchemaForGemini(item))
+  }
+  if (value === null || typeof value !== 'object') {
+    return value
+  }
+
+  const input = value as Record<string, unknown>
+  const output: Record<string, unknown> = {}
+  for (const [key, child] of Object.entries(input)) {
+    if (
+      key === 'additionalProperties' ||
+      key === 'exclusiveMinimum' ||
+      key === 'exclusiveMaximum' ||
+      key === '$schema' ||
+      key === 'examples'
+    ) {
+      if (key === 'exclusiveMinimum' && typeof child === 'number' && output.minimum === undefined) {
+        // Gemini schema doesn't support exclusiveMinimum; approximate with minimum.
+        output.minimum = child
+      }
+      continue
+    }
+    output[key] = sanitizeSchemaForGemini(child)
+  }
+  return output
+}
+
 function toTools(tools: ToolDef[]) {
   if (tools.length === 0) return undefined
 
@@ -83,7 +112,7 @@ function toTools(tools: ToolDef[]) {
       functionDeclarations: tools.map(({ name, description, parameters }) => ({
         name,
         description,
-        parameters,
+        parameters: sanitizeSchemaForGemini(parameters),
       })),
     },
   ]
@@ -119,13 +148,23 @@ export function createGeminiProvider(apiKey: string, model: string): LlmProvider
       }
 
       if (!response.ok) {
+        let detail = ''
+        try {
+          detail = (await response.text()).slice(0, 500)
+        } catch {
+          detail = ''
+        }
         if (response.status === 429) {
           throw new Error('Gemini quota exceeded (429). Wait or switch LLM_MODEL / plan.')
         }
         if (response.status === 404) {
           throw new Error(`Gemini model not found (404): ${model}. Set LLM_MODEL to a valid id (e.g. gemini-flash-latest).`)
         }
-        throw new Error(`Gemini request failed with status ${response.status}`)
+        throw new Error(
+          detail
+            ? `Gemini request failed with status ${response.status}: ${detail}`
+            : `Gemini request failed with status ${response.status}`
+        )
       }
 
       let payload: GeminiResponse
