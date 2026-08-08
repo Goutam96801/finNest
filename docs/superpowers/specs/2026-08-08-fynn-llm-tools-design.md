@@ -1,7 +1,7 @@
 # Fynn LLM Tool Agent Design
 
 **Date:** 2026-08-08  
-**Status:** Approved for planning (product decisions locked in brainstorming)  
+**Status:** Implemented pending deploy (code complete on `feat/fynn-llm-tools`; operator steps below)  
 **App surface:** In-app Fynn chat (`app/(tabs)/fynn.tsx`)  
 **Hosting:** Supabase Edge Function  
 **Default LLM:** Gemini free tier (provider swap via env)
@@ -199,6 +199,22 @@ Mirror existing app rules from `lib/services/*` (positive amounts, allowed accou
 - Mutating asks show a confirm card; Accept applies; Reject does nothing; another user’s ids never succeed.  
 - Switching `LLM_PROVIDER` + key changes the model without an Expo rebuild.  
 - Unauthenticated requests fail closed.
+
+### Implementation checklist (Tasks 1–9)
+
+| Criterion | Code / tests | Live verify |
+| --- | --- | --- |
+| DB-backed read answers | `fynn-chat` read tool loop + `executeTool` read catalog; Deno tests | Not run (no deployed Edge + secrets) |
+| Confirm card for writes | Propose tools → `fynn_proposals`; `fynn.tsx` confirm UI → `fynn-confirm` | Not run |
+| Provider swap via env | `getLlmProvider()` (`gemini` / `openai`); deploy notes | Not run |
+| Unauthenticated → fail closed | `getAuthedUserClient()` rejects missing/invalid JWT (Fynn handlers return JSON error; align HTTP status with `delete-account` 401 if desired) | Not run |
+
+### Operator blockers (before production smoke)
+
+1. **Migration history sync** — `npx supabase db push` failed with remote/local drift (`LegacyDbPushMissingLocalError`). Repair history or pull remote migrations, then apply `20260808120000_fynn_proposals.sql` and `20260808130000_fynn_chats.sql`.
+2. **Edge deploy privileges** — Prior deploy attempt returned HTTP 403; account needs permission to deploy `fynn-chat` and `fynn-confirm`.
+3. **`LLM_API_KEY` secrets** — Set `LLM_PROVIDER`, `LLM_API_KEY`, optional `LLM_MODEL` via `npx supabase secrets set` (see `docs/superpowers/settings-deploy-notes.md`).
+4. **Live smoke** — Gemini path (default), optional OpenAI env-only swap, one read turn and one confirmed write; not executed in SDD workspace.
 
 ## Open follow-ups (post-v1, not blocking plan)
 

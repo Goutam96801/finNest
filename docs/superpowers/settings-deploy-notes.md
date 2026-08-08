@@ -5,7 +5,15 @@
 npx supabase db push --yes
 ```
 
-Includes settings columns, feedback, `data_exports`, and private `exports` storage bucket.
+Includes settings columns, feedback, `data_exports`, private `exports` storage bucket, and Fynn tables:
+
+- `20260808120000_fynn_proposals.sql` — pending mutation proposals (confirm flow)
+- `20260808130000_fynn_chats.sql` — chat threads and messages (phase 5 persistence)
+
+If `db push` fails with **remote migration versions not found in local migrations directory**
+(`LegacyDbPushMissingLocalError`), repair migration history for the remote versions or run
+`supabase db pull` to sync before pushing Fynn migrations. Edge functions that write proposals
+or chat rows require these tables on the linked project.
 
 ## Edge functions
 ```bash
