@@ -2,8 +2,8 @@ import type { ChatMessage, CompleteResult, LlmProvider, ToolDef } from './types.
 
 type GeminiPart =
   | { text: string }
-  | { functionCall: { name: string; args: Record<string, unknown> } }
-  | { functionResponse: { name: string; response: Record<string, unknown> } }
+  | { functionCall: { id?: string; name: string; args: Record<string, unknown> } }
+  | { functionResponse: { id?: string; name: string; response: Record<string, unknown> } }
 
 type GeminiContent = {
   role?: 'user' | 'model'
@@ -45,6 +45,7 @@ function toGeminiContent(message: ChatMessage): GeminiContent {
       parts: [
         {
           functionResponse: {
+            ...(message.toolCallId ? { id: message.toolCallId } : {}),
             name: message.name ?? 'tool',
             response: parseObject(message.content) ?? { content: message.content },
           },
@@ -59,6 +60,7 @@ function toGeminiContent(message: ChatMessage): GeminiContent {
       parts: [
         {
           functionCall: {
+            ...(message.toolCallId ? { id: message.toolCallId } : {}),
             name: message.name,
             args: parseObject(message.content) ?? {},
           },
@@ -101,18 +103,31 @@ export function createGeminiProvider(apiKey: string, model: string): LlmProvider
         contents,
         ...(tools.length > 0 ? { tools: toTools(tools) } : {}),
       }
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
+      let response: Response
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+          },
+          body: JSON.stringify(body),
+        })
+      } catch {
+        throw new Error('Gemini request failed due to a transport error')
+      }
 
       if (!response.ok) {
         throw new Error(`Gemini request failed with status ${response.status}`)
       }
 
-      const payload = (await response.json()) as GeminiResponse
+      let payload: GeminiResponse
+      try {
+        payload = (await response.json()) as GeminiResponse
+      } catch {
+        throw new Error('Gemini response could not be parsed')
+      }
       const parts = payload.candidates?.[0]?.content?.parts ?? []
       const assistantText = parts
         .filter((part): part is { text: string } => typeof part.text === 'string')
