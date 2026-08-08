@@ -15,6 +15,20 @@ function getTransactionPayload(payload: Record<string, unknown>): Record<string,
   return payload.transaction
 }
 
+function getTransactionArgs(payload: Record<string, unknown>): Record<string, unknown> {
+  const transaction = getTransactionPayload(payload)
+  return {
+    accountId: transaction.account_id,
+    toAccountId: transaction.to_account_id,
+    type: transaction.type,
+    category: transaction.category,
+    amount: transaction.amount,
+    description: transaction.description,
+    status: transaction.status,
+    transactionDate: transaction.transaction_date,
+  }
+}
+
 function getTransactionId(payload: Record<string, unknown>): string {
   if (typeof payload.transaction_id !== 'string' || !payload.transaction_id.trim()) {
     throw new Error('Invalid proposal payload')
@@ -49,7 +63,7 @@ export async function applyProposal(
       const transaction = await buildTransactionPayload(
         userClient,
         userId,
-        getTransactionPayload(proposal.payload)
+        getTransactionArgs(proposal.payload)
       )
       const { data, error } = await userClient
         .from('transactions')
@@ -65,7 +79,7 @@ export async function applyProposal(
       const transaction = await buildTransactionPayload(
         userClient,
         userId,
-        getTransactionPayload(proposal.payload),
+        getTransactionArgs(proposal.payload),
         existing
       )
       const { data, error } = await userClient

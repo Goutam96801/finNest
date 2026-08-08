@@ -43,7 +43,7 @@ export default function Fynn() {
   const [draft, setDraft] = useState('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isSending, setIsSending] = useState(false)
-  const [confirmingProposalId, setConfirmingProposalId] = useState<string | null>(null)
+  const [confirmingProposalIds, setConfirmingProposalIds] = useState<string[]>([])
 
   const activeChat = chats.find((chat) => chat.id === activeChatId)
   const messages = activeChat?.messages ?? []
@@ -149,8 +149,8 @@ export default function Fynn() {
     proposalId: string,
     action: 'accept' | 'reject'
   ) => {
-    if (confirmingProposalId) return
-    setConfirmingProposalId(proposalId)
+    if (confirmingProposalIds.includes(proposalId)) return
+    setConfirmingProposalIds((current) => [...current, proposalId])
 
     try {
       const response = await confirmFynnProposal(proposalId, action)
@@ -179,7 +179,7 @@ export default function Fynn() {
           : chat
       )))
     } finally {
-      setConfirmingProposalId(null)
+      setConfirmingProposalIds((current) => current.filter((id) => id !== proposalId))
     }
   }
 
@@ -246,15 +246,15 @@ export default function Fynn() {
                         <View className="mt-3 flex-row gap-2">
                           <TouchableOpacity
                             accessibilityLabel="Accept proposed transaction"
-                            disabled={confirmingProposalId !== null}
+                            disabled={confirmingProposalIds.includes(message.proposal.id)}
                             onPress={() => confirmProposal(activeChatId!, message.id, message.proposal!.id, 'accept')}
-                            className={`flex-1 rounded-lg px-3 py-2 ${confirmingProposalId === null ? 'bg-lime-400' : 'bg-neutral-700'}`}
+                            className={`flex-1 rounded-lg px-3 py-2 ${confirmingProposalIds.includes(message.proposal.id) ? 'bg-neutral-700' : 'bg-lime-400'}`}
                           >
                             <Typo size={13} fontWeight="600" className="text-center text-neutral-900">Accept</Typo>
                           </TouchableOpacity>
                           <TouchableOpacity
                             accessibilityLabel="Reject proposed transaction"
-                            disabled={confirmingProposalId !== null}
+                            disabled={confirmingProposalIds.includes(message.proposal.id)}
                             onPress={() => confirmProposal(activeChatId!, message.id, message.proposal!.id, 'reject')}
                             className="flex-1 rounded-lg bg-neutral-700 px-3 py-2"
                           >

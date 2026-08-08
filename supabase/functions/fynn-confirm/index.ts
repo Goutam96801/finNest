@@ -7,7 +7,7 @@ type Proposal = {
   user_id: string
   tool_name: string
   payload: Record<string, unknown>
-  status: 'pending'
+  status: 'pending' | 'accepted' | 'rejected' | 'expired'
   expires_at: string
 }
 
@@ -17,11 +17,18 @@ type FynnConfirmDependencies = {
     userClient: any
   }>
   getProposal: (userClient: any, proposalId: string, userId: string) => Promise<Proposal | null>
+  claimProposal: (
+    userClient: any,
+    proposalId: string,
+    userId: string,
+    status: 'accepted' | 'rejected'
+  ) => Promise<Proposal | null>
   updateProposal: (
     userClient: any,
     proposalId: string,
     patch: { status: 'accepted' | 'rejected' | 'expired'; resolved_at: string }
   ) => Promise<void>
+  rollbackAcceptedProposal: (userClient: any, proposalId: string, userId: string) => Promise<void>
   applyProposal: (userClient: any, userId: string, proposal: Proposal) => Promise<unknown>
 }
 
@@ -32,6 +39,25 @@ async function getProposal(userClient: any, proposalId: string, userId: string):
     .eq('id', proposalId)
     .eq('user_id', userId)
     .eq('status', 'pending')
+    .maybeSingle()
+  if (error) throw error
+  return data as Proposal | null
+}
+
+async function claimProposal(
+  userClient: any,
+  proposalId: string,
+  userId: string,
+  status: 'accepted' | 'rejected'
+): Promise<Proposal | null> {
+  const { data, error } = await userClient
+    .from('fynn_proposals')
+    .update({ status, resolved_at: new Date().toISOString() })
+    .eq('id', proposalId)
+    .eq('user_id', userId)
+    .eq('status', 'pending')
+    .gt('expires_at', new Date().toISOString())
+    .select('id, user_id, tool_name, payload, status, expires_at')
     .maybeSingle()
   if (error) throw error
   return data as Proposal | null
@@ -49,6 +75,16 @@ async function updateProposal(
   if (error) throw error
 }
 
+async function rollbackAcceptedProposal(userClient: any, proposalId: string, userId: string) {
+  const { error } = await userClient
+    .from('fynn_proposals')
+    .update({ status: 'pending', resolved_at: null })
+    .eq('id', proposalId)
+    .eq('user_id', userId)
+    .eq('status', 'accepted')
+  if (error) throw error
+}
+
 function parseRequest(body: unknown): { proposalId: string; action: 'accept' | 'reject' } | null {
   if (!body || typeof body !== 'object') return null
   const { proposal_id: proposalId, action } = body as Record<string, unknown>
@@ -61,7 +97,9 @@ export function createFynnConfirmHandler(
   dependencies: FynnConfirmDependencies = {
     getAuthedUserClient,
     getProposal,
+    claimProposal,
     updateProposal,
+    rollbackAcceptedProposal,
     applyProposal,
   }
 ) {
@@ -87,18 +125,21 @@ export function createFynnConfirmHandler(
       }
 
       if (body.action === 'reject') {
-        await dependencies.updateProposal(userClient, proposal.id, {
-          status: 'rejected',
-          resolved_at: resolvedAt,
-        })
+        const claimed = await dependencies.claimProposal(userClient, proposal.id, user.id, 'rejected')
+        if (!claimed) return json({ error: 'Proposal not found or already resolved' }, 404)
         return json({ success: true, status: 'rejected' })
       }
 
-      const data = await dependencies.applyProposal(userClient, user.id, proposal)
-      await dependencies.updateProposal(userClient, proposal.id, {
-        status: 'accepted',
-        resolved_at: resolvedAt,
-      })
+      const claimed = await dependencies.claimProposal(userClient, proposal.id, user.id, 'accepted')
+      if (!claimed) return json({ error: 'Proposal not found or already resolved' }, 404)
+
+      let data: unknown
+      try {
+        data = await dependencies.applyProposal(userClient, user.id, claimed)
+      } catch (error) {
+        await dependencies.rollbackAcceptedProposal(userClient, proposal.id, user.id)
+        throw error
+      }
       return json({ success: true, status: 'accepted', data })
     } catch (error) {
       return json(

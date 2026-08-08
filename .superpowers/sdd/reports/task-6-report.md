@@ -21,4 +21,16 @@ DONE_WITH_CONCERNS
 
 - Deployments for `fynn-chat` and `fynn-confirm` both failed before upload with Supabase HTTP 403: the configured account lacks privileges to list/deploy functions. Docker was also unavailable.
 - The `fynn_proposals` migration must be applied to the target database before either function can persist or resolve proposals.
-- Concurrent accept requests can theoretically race between applying the mutation and changing proposal status. The client disables duplicate taps; fully atomic single-use acceptance requires a database RPC/transaction and is outside the available proposal status model.
+
+## Fixes
+
+- `applyProposal` now maps the stored snake_case transaction payload (`account_id`, `to_account_id`, `transaction_date`, and related fields) back to the validated transaction input shape. The added integration-style Deno test captures the `transactions` insert and verifies the full row created from a snake_case proposal payload.
+- `fynn-confirm` now atomically claims an accept or reject with `id`, `user_id`, `status = pending`, and unexpired conditions before applying. A failed apply rolls an accepted claim back to pending; a lost claim returns without applying.
+- Confirmation state in the Fynn UI is now tracked per proposal ID, so one proposal’s in-flight request does not disable other proposal cards.
+
+### Verification
+
+- `npx deno test supabase/functions/fynn-chat/index.test.ts supabase/functions/fynn-confirm/index.test.ts supabase/functions/_shared/tools/apply.test.ts` — 7 passed, 0 failed.
+- `npx tsc --noEmit --pretty false` — exit 0.
+- `npx expo lint` — exit 0; 23 existing workspace warnings, no errors.
+- `git diff --check` — exit 0.
