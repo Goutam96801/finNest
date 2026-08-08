@@ -1,6 +1,12 @@
 import ScreenWrapper from '@/components/ScreenWrapper'
 import Typo from '@/components/Typo'
-import { confirmFynnProposal, sendFynnMessage } from '@/lib/services/fynn'
+import {
+  confirmFynnProposal,
+  type FynnStoredChat,
+  loadFynnChats,
+  sendFynnMessage,
+  updateFynnProposalMessage,
+} from '@/lib/services/fynn'
 import { LinearGradient } from 'expo-linear-gradient'
 import { ArrowUp, Heart, List, Plus, X } from 'phosphor-react-native'
 import React, { useEffect, useRef, useState } from 'react'
@@ -49,6 +55,28 @@ export default function Fynn() {
   const messages = activeChat?.messages ?? []
 
   useEffect(() => {
+    const loadChats = async () => {
+      const response = await loadFynnChats()
+      if (!response.success || !response.data) return
+
+      setChats(response.data.map((chat: FynnStoredChat) => ({
+        id: chat.id,
+        title: chat.title,
+        messages: [...(chat.fynn_messages || [])].sort(
+          (a, b) => a.created_at.localeCompare(b.created_at)
+        ).map((message) => ({
+          id: message.id,
+          role: message.role,
+          text: message.content,
+          proposal: message.proposal_metadata || undefined,
+        })),
+      })))
+    }
+
+    void loadChats()
+  }, [])
+
+  useEffect(() => {
     if (messages.length > 0) return
 
     const heartbeat = Animated.loop(
@@ -75,10 +103,6 @@ export default function Fynn() {
     const timestamp = Date.now()
     const userMessage: ChatMessage = { id: `${timestamp}-user`, role: 'user', text: cleanText }
     const chatId = activeChatId ?? `${timestamp}`
-    const history = messages.map((message) => ({
-      role: message.role,
-      content: message.text,
-    }))
 
     if (activeChatId) {
       setChats((current) => current.map((chat) => (
@@ -99,7 +123,8 @@ export default function Fynn() {
     setIsSending(true)
 
     try {
-      const response = await sendFynnMessage(cleanText, history)
+      const response = await sendFynnMessage(cleanText, activeChatId ?? undefined)
+      const persistedChatId = response.success ? response.data?.chatId : undefined
       const assistantMessage: ChatMessage = {
         id: `${timestamp}-assistant`,
         role: 'assistant',
@@ -119,9 +144,14 @@ export default function Fynn() {
       }
       setChats((current) => current.map((chat) => (
         chat.id === chatId
-          ? { ...chat, messages: [...chat.messages, assistantMessage] }
+          ? {
+              ...chat,
+              id: persistedChatId || chat.id,
+              messages: [...chat.messages, assistantMessage],
+            }
           : chat
       )))
+      if (persistedChatId && !activeChatId) setActiveChatId(persistedChatId)
     } catch {
       setChats((current) => current.map((chat) => (
         chat.id === chatId
@@ -157,6 +187,11 @@ export default function Fynn() {
       if (!response.success) return
 
       const status: 'accepted' | 'rejected' = action === 'accept' ? 'accepted' : 'rejected'
+      const chat = chats.find((item) => item.id === chatId)
+      const message = chat?.messages.find((item) => item.id === messageId)
+      if (message?.proposal) {
+        await updateFynnProposalMessage(messageId, { ...message.proposal, status })
+      }
       if (
         action === 'accept'
         && typeof response.data === 'object'
