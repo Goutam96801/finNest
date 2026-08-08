@@ -66,4 +66,55 @@ export const TOOL_DEFS: ToolDef[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'propose_create_transaction',
+    description: 'Propose creating a transaction. This does not make a change until the user confirms it.',
+    parameters: {
+      type: 'object',
+      properties: {
+        accountId: { type: 'string', description: 'Source account UUID.' },
+        toAccountId: { type: 'string', description: 'Destination account UUID for transfers.' },
+        type: { type: 'string', enum: ['expense', 'income', 'transfer'] },
+        category: { type: 'string', maxLength: 100 },
+        amount: { type: 'number', exclusiveMinimum: 0 },
+        description: { type: 'string', maxLength: 500 },
+        status: { type: 'string', enum: ['completed', 'pending', 'cancelled'] },
+        transactionDate: { type: 'string', format: 'date-time' },
+      },
+      required: ['accountId', 'type', 'amount'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'propose_update_transaction',
+    description: 'Propose updating a transaction. This does not make a change until the user confirms it.',
+    parameters: {
+      type: 'object',
+      properties: {
+        transactionId: { type: 'string', description: 'Transaction UUID.' },
+        accountId: { type: 'string', description: 'Source account UUID.' },
+        toAccountId: { type: 'string', description: 'Destination account UUID for transfers.' },
+        type: { type: 'string', enum: ['expense', 'income', 'transfer'] },
+        category: { type: 'string', maxLength: 100 },
+        amount: { type: 'number', exclusiveMinimum: 0 },
+        description: { type: 'string', maxLength: 500 },
+        status: { type: 'string', enum: ['completed', 'pending', 'cancelled'] },
+        transactionDate: { type: 'string', format: 'date-time' },
+      },
+      required: ['transactionId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'propose_delete_transaction',
+    description: 'Propose deleting a transaction. This does not make a change until the user confirms it.',
+    parameters: {
+      type: 'object',
+      properties: {
+        transactionId: { type: 'string', description: 'Transaction UUID.' },
+      },
+      required: ['transactionId'],
+      additionalProperties: false,
+    },
+  },
 ]

@@ -9,6 +9,12 @@ const MAX_TOOL_ITERATIONS = 6
 
 type ToolResult = { ok: true; result: unknown } | { ok: false; error: string }
 
+type ProposalResult = {
+  proposal_id: string
+  summary: string
+  preview: unknown
+}
+
 type FynnChatDependencies = {
   getAuthedUserClient: (req: Request) => Promise<{
     user: { id: string }
@@ -24,6 +30,16 @@ type FynnChatDependencies = {
 }
 
 const systemPrompt = `You are Fynn, a helpful personal finance assistant. Use the available tools to answer questions about this user's money data. Never invent balances, transactions, subscriptions, or other financial data. Only use the listed tools, and clearly say when the data is unavailable.`
+
+function proposalResult(value: unknown): ProposalResult | null {
+  if (!value || typeof value !== 'object') return null
+  const result = value as Record<string, unknown>
+  return typeof result.proposal_id === 'string'
+    && typeof result.summary === 'string'
+    && 'preview' in result
+    ? result as ProposalResult
+    : null
+}
 
 function parseMessages(
   history: unknown,
@@ -96,6 +112,17 @@ export function createFynnChatHandler(
             userId: user.id,
             userClient,
           })
+          if (result.ok) {
+            const proposal = proposalResult(result.result)
+            if (proposal) {
+              return json({
+                type: 'proposal',
+                proposalId: proposal.proposal_id,
+                summary: proposal.summary,
+                preview: proposal.preview,
+              })
+            }
+          }
           messages.push({
             role: 'tool',
             content: JSON.stringify(result),

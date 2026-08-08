@@ -7,6 +7,11 @@ import {
   listSubscriptions,
   listTransactions,
 } from './reads.ts'
+import {
+  proposeCreateTransaction,
+  proposeDeleteTransaction,
+  proposeUpdateTransaction,
+} from './proposals.ts'
 
 type ExecuteToolInput = {
   name: string
@@ -39,6 +44,15 @@ export async function executeTool(
         break
       case 'list_notifications':
         result = await listNotifications(input)
+        break
+      case 'propose_create_transaction':
+        result = await proposeCreateTransaction(input)
+        break
+      case 'propose_update_transaction':
+        result = await proposeUpdateTransaction(input)
+        break
+      case 'propose_delete_transaction':
+        result = await proposeDeleteTransaction(input)
         break
       default:
         return { ok: false, error: 'Unknown tool' }

@@ -17,3 +17,16 @@ export async function sendFynnMessage(
   if (data?.error) return { success: false, msg: String(data.error) }
   return { success: true, data: data as FynnChatResponse }
 }
+
+export async function confirmFynnProposal(
+  proposalId: string,
+  action: 'accept' | 'reject'
+): Promise<ResponseType & { data?: unknown }> {
+  const { data, error } = await supabase.functions.invoke('fynn-confirm', {
+    body: { proposal_id: proposalId, action },
+  })
+
+  if (error) return { success: false, msg: error.message }
+  if (data?.error) return { success: false, msg: String(data.error) }
+  return { success: true, data }
+}

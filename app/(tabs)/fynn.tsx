@@ -1,6 +1,6 @@
 import ScreenWrapper from '@/components/ScreenWrapper'
 import Typo from '@/components/Typo'
-import { sendFynnMessage } from '@/lib/services/fynn'
+import { confirmFynnProposal, sendFynnMessage } from '@/lib/services/fynn'
 import { LinearGradient } from 'expo-linear-gradient'
 import { ArrowUp, Heart, List, Plus, X } from 'phosphor-react-native'
 import React, { useEffect, useRef, useState } from 'react'
@@ -16,7 +16,17 @@ import {
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
-type ChatMessage = { id: string; role: 'assistant' | 'user'; text: string }
+type ChatMessage = {
+  id: string
+  role: 'assistant' | 'user'
+  text: string
+  proposal?: {
+    id: string
+    summary: string
+    preview: unknown
+    status: 'pending' | 'accepted' | 'rejected'
+  }
+}
 type Chat = { id: string; title: string; messages: ChatMessage[] }
 
 const starterPrompts = [
@@ -33,6 +43,7 @@ export default function Fynn() {
   const [draft, setDraft] = useState('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [confirmingProposalId, setConfirmingProposalId] = useState<string | null>(null)
 
   const activeChat = chats.find((chat) => chat.id === activeChatId)
   const messages = activeChat?.messages ?? []
@@ -92,9 +103,19 @@ export default function Fynn() {
       const assistantMessage: ChatMessage = {
         id: `${timestamp}-assistant`,
         role: 'assistant',
-        text: response.success && response.data?.type === 'message'
-          ? response.data.text
-          : response.msg || 'Fynn could not respond. Please try again.',
+        text: response.success && response.data?.type === 'proposal'
+          ? response.data.text || 'Please confirm this change.'
+          : response.success && response.data?.type === 'message'
+            ? response.data.text
+            : response.msg || 'Fynn could not respond. Please try again.',
+        proposal: response.success && response.data?.type === 'proposal'
+          ? {
+              id: response.data.proposalId,
+              summary: response.data.summary,
+              preview: response.data.preview,
+              status: 'pending',
+            }
+          : undefined,
       }
       setChats((current) => current.map((chat) => (
         chat.id === chatId
@@ -119,6 +140,46 @@ export default function Fynn() {
       )))
     } finally {
       setIsSending(false)
+    }
+  }
+
+  const confirmProposal = async (
+    chatId: string,
+    messageId: string,
+    proposalId: string,
+    action: 'accept' | 'reject'
+  ) => {
+    if (confirmingProposalId) return
+    setConfirmingProposalId(proposalId)
+
+    try {
+      const response = await confirmFynnProposal(proposalId, action)
+      if (!response.success) return
+
+      const status: 'accepted' | 'rejected' = action === 'accept' ? 'accepted' : 'rejected'
+      setChats((current) => current.map((chat) => (
+        chat.id === chatId
+          ? {
+              ...chat,
+              messages: [
+                ...chat.messages.map((message) => (
+                  message.id === messageId && message.proposal
+                    ? { ...message, proposal: { ...message.proposal, status } }
+                    : message
+                )),
+                ...(action === 'accept'
+                  ? [{
+                      id: `${Date.now()}-confirmation`,
+                      role: 'assistant' as const,
+                      text: 'Transaction confirmed and applied.',
+                    }]
+                  : []),
+              ],
+            }
+          : chat
+      )))
+    } finally {
+      setConfirmingProposalId(null)
     }
   }
 
@@ -178,6 +239,35 @@ export default function Fynn() {
                 }
                 <View className={`max-w-[82%] rounded-[18px] px-3.5 py-[11px] ${message.role === 'user' ? 'rounded-br-[5px] bg-lime-400' : 'rounded-bl-[5px] bg-neutral-800'}`}>
                   <Typo size={15} className={message.role === 'user' ? 'text-neutral-900' : 'text-neutral-100'}>{message.text}</Typo>
+                  {message.proposal ? (
+                    <View className="mt-3 rounded-xl border border-neutral-700 bg-neutral-900 p-3">
+                      <Typo size={14} fontWeight="600" className="text-neutral-100">{message.proposal.summary}</Typo>
+                      {message.proposal.status === 'pending' ? (
+                        <View className="mt-3 flex-row gap-2">
+                          <TouchableOpacity
+                            accessibilityLabel="Accept proposed transaction"
+                            disabled={confirmingProposalId !== null}
+                            onPress={() => confirmProposal(activeChatId!, message.id, message.proposal!.id, 'accept')}
+                            className={`flex-1 rounded-lg px-3 py-2 ${confirmingProposalId === null ? 'bg-lime-400' : 'bg-neutral-700'}`}
+                          >
+                            <Typo size={13} fontWeight="600" className="text-center text-neutral-900">Accept</Typo>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            accessibilityLabel="Reject proposed transaction"
+                            disabled={confirmingProposalId !== null}
+                            onPress={() => confirmProposal(activeChatId!, message.id, message.proposal!.id, 'reject')}
+                            className="flex-1 rounded-lg bg-neutral-700 px-3 py-2"
+                          >
+                            <Typo size={13} fontWeight="600" className="text-center text-neutral-100">Reject</Typo>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <Typo size={13} className="mt-2 text-neutral-400">
+                          {message.proposal.status === 'accepted' ? 'Accepted' : 'Rejected'}
+                        </Typo>
+                      )}
+                    </View>
+                  ) : null}
                 </View>
               </View>
             ))}
