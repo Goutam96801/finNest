@@ -6,7 +6,8 @@ function testPersistence() {
     createChat: async () => 'chat-1',
     requireChat: async () => {},
     listMessages: async () => [],
-    saveMessage: async () => {},
+    saveMessage: async (_userClient: unknown, input: { role: 'user' | 'assistant' }) =>
+      input.role === 'user' ? 'user-message-1' : 'assistant-message-1',
   }
 }
 
@@ -52,7 +53,13 @@ Deno.test('Fynn chat executes read tools and returns the follow-up message', asy
   )
 
   assertEquals(response.status, 200)
-  assertEquals(await response.json(), { type: 'message', text: 'You have one account.', chatId: 'chat-1' })
+  assertEquals(await response.json(), {
+    type: 'message',
+    text: 'You have one account.',
+    chatId: 'chat-1',
+    userMessageId: 'user-message-1',
+    messageId: 'assistant-message-1',
+  })
   assertEquals(providerInputs.length, 2)
   assertStringIncludes(providerInputs[0].messages[0].content, 'Never invent balances')
   assertEquals(providerInputs[1].messages.at(-1), {
@@ -105,6 +112,8 @@ Deno.test('Fynn chat returns a proposal immediately after a propose tool succeed
     preview: { amount: 50, type: 'expense' },
     text: 'Please confirm this change.',
     chatId: 'chat-1',
+    userMessageId: 'user-message-1',
+    messageId: 'assistant-message-1',
   })
   assertEquals(completions, 1)
 })
@@ -171,6 +180,8 @@ Deno.test('Fynn chat creates a chat and persists the completed turn', async () =
     type: 'message',
     text: 'Your balance is ₹100.',
     chatId: 'chat-1',
+    userMessageId: 'chat-1',
+    messageId: 'chat-1',
   })
   assertEquals(calls, [
     {

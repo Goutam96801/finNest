@@ -125,8 +125,9 @@ export default function Fynn() {
     try {
       const response = await sendFynnMessage(cleanText, activeChatId ?? undefined)
       const persistedChatId = response.success ? response.data?.chatId : undefined
+      const persistedUserMessageId = response.success ? response.data?.userMessageId : undefined
       const assistantMessage: ChatMessage = {
-        id: `${timestamp}-assistant`,
+        id: response.success ? response.data?.messageId || `${timestamp}-assistant` : `${timestamp}-assistant`,
         role: 'assistant',
         text: response.success && response.data?.type === 'proposal'
           ? response.data.text || 'Please confirm this change.'
@@ -147,7 +148,14 @@ export default function Fynn() {
           ? {
               ...chat,
               id: persistedChatId || chat.id,
-              messages: [...chat.messages, assistantMessage],
+              messages: [
+                ...chat.messages.map((message) => (
+                  message.id === userMessage.id && persistedUserMessageId
+                    ? { ...message, id: persistedUserMessageId }
+                    : message
+                )),
+                assistantMessage,
+              ],
             }
           : chat
       )))

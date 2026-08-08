@@ -2,8 +2,23 @@ import { supabase } from '@/lib/supabase'
 import { ResponseType } from '@/types'
 
 export type FynnChatResponse =
-  | { type: 'message'; text: string; chatId: string }
-  | { type: 'proposal'; proposalId: string; summary: string; preview: unknown; text?: string; chatId: string }
+  | {
+    type: 'message'
+    text: string
+    chatId: string
+    userMessageId: string
+    messageId: string
+  }
+  | {
+    type: 'proposal'
+    proposalId: string
+    summary: string
+    preview: unknown
+    text?: string
+    chatId: string
+    userMessageId: string
+    messageId: string
+  }
 
 export type FynnStoredMessage = {
   id: string

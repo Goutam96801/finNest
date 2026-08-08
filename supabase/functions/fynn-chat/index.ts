@@ -25,7 +25,7 @@ type ChatPersistence = {
     role: 'user' | 'assistant'
     content: string
     proposalMetadata?: unknown
-  }) => Promise<void>
+  }) => Promise<string>
 }
 
 type FynnChatDependencies = {
@@ -77,14 +77,15 @@ const persistence: ChatPersistence = {
     ))
   },
   async saveMessage(userClient, { chatId, userId, role, content, proposalMetadata }) {
-    const { error } = await userClient.from('fynn_messages').insert({
+    const { data, error } = await userClient.from('fynn_messages').insert({
       chat_id: chatId,
       user_id: userId,
       role,
       content,
       ...(proposalMetadata === undefined ? {} : { proposal_metadata: proposalMetadata }),
-    })
-    if (error) throw new Error(error.message)
+    }).select('id').single()
+    if (error || !data?.id) throw new Error(error?.message || 'Unable to save message')
+    return data.id
   },
 }
 
@@ -159,7 +160,7 @@ export function createFynnChatHandler(
         : []
       const messages = parseMessages(history, body.message)
       if (!messages) return json({ error: 'Message is required' }, 400)
-      await persistenceLayer.saveMessage(userClient, {
+      const userMessageId = await persistenceLayer.saveMessage(userClient, {
         chatId,
         userId: user.id,
         role: 'user',
@@ -173,13 +174,19 @@ export function createFynnChatHandler(
           if (!completion.assistantText?.trim()) {
             throw new Error('Unable to complete chat response')
           }
-          await persistenceLayer.saveMessage(userClient, {
+          const messageId = await persistenceLayer.saveMessage(userClient, {
             chatId,
             userId: user.id,
             role: 'assistant',
             content: completion.assistantText,
           })
-          return json({ type: 'message', text: completion.assistantText, chatId })
+          return json({
+            type: 'message',
+            text: completion.assistantText,
+            chatId,
+            userMessageId,
+            messageId,
+          })
         }
 
         for (const toolCall of completion.toolCalls) {
@@ -200,7 +207,7 @@ export function createFynnChatHandler(
             const proposal = proposalResult(result.result)
             if (proposal) {
               const text = 'Please confirm this change.'
-              await persistenceLayer.saveMessage(userClient, {
+              const messageId = await persistenceLayer.saveMessage(userClient, {
                 chatId,
                 userId: user.id,
                 role: 'assistant',
@@ -219,6 +226,8 @@ export function createFynnChatHandler(
                 preview: proposal.preview,
                 text,
                 chatId,
+                userMessageId,
+                messageId,
               })
             }
           }
