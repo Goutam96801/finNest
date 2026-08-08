@@ -193,7 +193,19 @@ export async function applyProposal(
         .select()
         .single()
       if (error) throw error
-      return data
+      const { error: notificationError } = await userClient
+        .from('notifications')
+        .insert({
+          user_id: userId,
+          type: 'subscription_due',
+          title: `${subscription.name} reminder set`,
+          body: `Due on ${subscription.next_due_date}`,
+          data: { subscriptionId: data.id },
+        })
+        .select()
+        .single()
+      if (notificationError) throw notificationError
+      return { data, reminderResyncRequired: true }
     }
     case 'propose_update_subscription': {
       const subscriptionId = getPayloadId(proposal.payload, 'subscription_id')
@@ -209,7 +221,7 @@ export async function applyProposal(
         .select()
         .single()
       if (error) throw error
-      return data
+      return { data, reminderResyncRequired: true }
     }
     case 'propose_delete_subscription': {
       const subscriptionId = getPayloadId(proposal.payload, 'subscription_id')
@@ -231,6 +243,12 @@ export async function applyProposal(
         .select()
         .single()
       if (error) throw error
+      if (typeof profile.full_name === 'string') {
+        const { error: authError } = await userClient.auth.updateUser({
+          data: { display_name: profile.full_name },
+        })
+        if (authError) throw authError
+      }
       return data
     }
     case 'propose_mark_notification_read': {

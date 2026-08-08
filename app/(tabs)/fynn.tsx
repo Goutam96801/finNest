@@ -157,6 +157,16 @@ export default function Fynn() {
       if (!response.success) return
 
       const status: 'accepted' | 'rejected' = action === 'accept' ? 'accepted' : 'rejected'
+      if (
+        action === 'accept'
+        && typeof response.data === 'object'
+        && response.data !== null
+        && (response.data as { reminderResyncRequired?: unknown }).reminderResyncRequired === true
+      ) {
+        const { resyncSubscriptionRemindersForUser } = await import('@/lib/services/localReminders')
+        const { data: { user } } = await (await import('@/lib/supabase')).supabase.auth.getUser()
+        if (user) await resyncSubscriptionRemindersForUser(user.id)
+      }
       setChats((current) => current.map((chat) => (
         chat.id === chatId
           ? {

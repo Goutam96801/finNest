@@ -178,3 +178,118 @@ Deno.test('account proposal stores snake_case payload that apply uses unchanged'
     notes: null,
   })
 })
+
+Deno.test('applyProposal mirrors a changed full name to auth display metadata', async () => {
+  let profileUpdate: Record<string, unknown> | undefined
+  let authUpdate: Record<string, unknown> | undefined
+  const userClient = {
+    from: (table: string) => {
+      if (table !== 'profiles') throw new Error(`Unexpected table: ${table}`)
+      return {
+        update: (row: Record<string, unknown>) => {
+          profileUpdate = row
+          return {
+            eq: () => ({
+              select: () => ({
+                single: async () => ({ data: row, error: null }),
+              }),
+            }),
+          }
+        },
+      }
+    },
+    auth: {
+      updateUser: async (input: Record<string, unknown>) => {
+        authUpdate = input
+        return { error: null }
+      },
+    },
+  }
+
+  await applyProposal(userClient as never, 'user-1', {
+    tool_name: 'propose_update_profile',
+    payload: { profile: { full_name: 'Ada Lovelace' } },
+  })
+
+  assertEquals(profileUpdate, { full_name: 'Ada Lovelace' })
+  assertEquals(authUpdate, { data: { display_name: 'Ada Lovelace' } })
+})
+
+Deno.test('applyProposal creates a subscription notification and requests reminder resync', async () => {
+  const inserts: Array<{ table: string; row: Record<string, unknown> }> = []
+  const accountQuery = {
+    eq: () => accountQuery,
+    maybeSingle: async () => ({ data: { id: 'account-1' }, error: null }),
+  }
+  const userClient = {
+    from: (table: string) => {
+      if (table === 'accounts') return { select: () => accountQuery }
+      if (table === 'subscriptions') {
+        return {
+          insert: (row: Record<string, unknown>) => {
+            inserts.push({ table, row })
+            return {
+              select: () => ({
+                single: async () => ({ data: { id: 'subscription-1', ...row }, error: null }),
+              }),
+            }
+          },
+        }
+      }
+      if (table === 'notifications') {
+        return {
+          insert: (row: Record<string, unknown>) => {
+            inserts.push({ table, row })
+            return {
+              select: () => ({
+                single: async () => ({ data: row, error: null }),
+              }),
+            }
+          },
+        }
+      }
+      throw new Error(`Unexpected table: ${table}`)
+    },
+  }
+
+  const result = await applyProposal(userClient as never, 'user-1', {
+    tool_name: 'propose_create_subscription',
+    payload: {
+      subscription: {
+        account_id: 'account-1',
+        name: 'Netflix',
+        amount: 199,
+        category: 'entertainment',
+        frequency: 'monthly',
+        next_due_date: '2026-09-01',
+        notes: null,
+      },
+    },
+  })
+
+  assertEquals(result, {
+    data: {
+      id: 'subscription-1',
+      user_id: 'user-1',
+      account_id: 'account-1',
+      name: 'Netflix',
+      amount: 199,
+      category: 'entertainment',
+      frequency: 'monthly',
+      next_due_date: '2026-09-01',
+      notes: null,
+      is_active: true,
+    },
+    reminderResyncRequired: true,
+  })
+  assertEquals(inserts[1], {
+    table: 'notifications',
+    row: {
+      user_id: 'user-1',
+      type: 'subscription_due',
+      title: 'Netflix reminder set',
+      body: 'Due on 2026-09-01',
+      data: { subscriptionId: 'subscription-1' },
+    },
+  })
+})
