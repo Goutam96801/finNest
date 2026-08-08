@@ -6,6 +6,23 @@ import { TOOL_DEFS } from '../_shared/tools/catalog.ts'
 import { executeTool } from '../_shared/tools/executor.ts'
 
 const MAX_TOOL_ITERATIONS = 6
+const RATE_LIMIT_WINDOW_MS = 60 * 1000
+const MAX_REQUESTS_PER_USER_PER_WINDOW = 20
+const requestTimesByUser = new Map<string, number[]>()
+
+function isRateLimited(userId: string, now = Date.now()): boolean {
+  const requestTimes = (requestTimesByUser.get(userId) ?? [])
+    .filter((requestTime) => requestTime > now - RATE_LIMIT_WINDOW_MS)
+
+  if (requestTimes.length >= MAX_REQUESTS_PER_USER_PER_WINDOW) {
+    requestTimesByUser.set(userId, requestTimes)
+    return true
+  }
+
+  requestTimes.push(now)
+  requestTimesByUser.set(userId, requestTimes)
+  return false
+}
 
 type ToolResult = { ok: true; result: unknown } | { ok: false; error: string }
 
@@ -148,6 +165,9 @@ export function createFynnChatHandler(
       const body = await req.json().catch(() => ({}))
       if (typeof body.message !== 'string' || !body.message.trim()) {
         return json({ error: 'Message is required' }, 400)
+      }
+      if (isRateLimited(user.id)) {
+        return json({ error: 'Too many Fynn chat requests. Try again later.' }, 429)
       }
       const requestedChatId = typeof body.chat_id === 'string' && body.chat_id.trim()
         ? body.chat_id.trim()

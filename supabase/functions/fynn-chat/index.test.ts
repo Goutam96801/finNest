@@ -201,3 +201,42 @@ Deno.test('Fynn chat creates a chat and persists the completed turn', async () =
     },
   ])
 })
+
+Deno.test('Fynn chat limits each user to 20 turns per minute', async () => {
+  let completions = 0
+  const handler = createFynnChatHandler({
+    getAuthedUserClient: async () => ({
+      user: { id: 'rate-limited-user' },
+      userClient: {},
+    }),
+    getLlmProvider: () => ({
+      complete: async () => {
+        completions += 1
+        return { assistantText: 'Hello.', toolCalls: [] }
+      },
+    }),
+    executeTool: async () => ({ ok: true, result: [] }),
+    persistence: testPersistence(),
+  })
+
+  for (let turn = 0; turn < 20; turn += 1) {
+    const response = await handler(
+      new Request('http://localhost/fynn-chat', {
+        method: 'POST',
+        body: JSON.stringify({ message: `Turn ${turn}` }),
+      })
+    )
+    assertEquals(response.status, 200)
+  }
+
+  const response = await handler(
+    new Request('http://localhost/fynn-chat', {
+      method: 'POST',
+      body: JSON.stringify({ message: 'One too many' }),
+    })
+  )
+
+  assertEquals(completions, 20)
+  assertEquals(response.status, 429)
+  assertEquals(await response.json(), { error: 'Too many Fynn chat requests. Try again later.' })
+})
