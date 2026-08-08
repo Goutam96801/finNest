@@ -16,6 +16,6 @@ export function getLlmProvider(): LlmProvider {
     return createOpenAiProvider(apiKey, model)
   }
 
-  const model = (Deno.env.get('LLM_MODEL') ?? 'gemini-2.0-flash').trim().toLowerCase()
+  const model = (Deno.env.get('LLM_MODEL') ?? 'gemini-flash-latest').trim().toLowerCase()
   return createGeminiProvider(apiKey, model)
 }

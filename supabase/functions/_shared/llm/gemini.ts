@@ -119,6 +119,12 @@ export function createGeminiProvider(apiKey: string, model: string): LlmProvider
       }
 
       if (!response.ok) {
+        if (response.status === 429) {
+          throw new Error('Gemini quota exceeded (429). Wait or switch LLM_MODEL / plan.')
+        }
+        if (response.status === 404) {
+          throw new Error(`Gemini model not found (404): ${model}. Set LLM_MODEL to a valid id (e.g. gemini-flash-latest).`)
+        }
         throw new Error(`Gemini request failed with status ${response.status}`)
       }
 

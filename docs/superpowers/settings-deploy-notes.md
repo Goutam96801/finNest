@@ -31,13 +31,13 @@ Configure these secrets only for Supabase Edge Functions. Never expose them thro
 `EXPO_PUBLIC_*` variables or include them in the mobile application.
 
 ```bash
-npx supabase secrets set LLM_PROVIDER=gemini LLM_API_KEY=YOUR_KEY LLM_MODEL=gemini-2.0-flash
+npx supabase secrets set LLM_PROVIDER=gemini LLM_API_KEY=YOUR_KEY LLM_MODEL=gemini-flash-latest
 ```
 
 - `LLM_PROVIDER`: `gemini` (default)
 - `LLM_API_KEY`: Gemini API key, stored only in Supabase Edge Function secrets
-- `LLM_MODEL`: optional Gemini model override; defaults to `gemini-2.0-flash`. Use a full model id in lowercase (e.g. `gemini-2.5-flash`, not `gemini` or `gemini-2.5-flasH`).
-- Device clock skew: if Expo/PostgREST logs `JWT issued at future` (PGRST303), the phone clock is ahead of the server — fix automatic time, sign out/in, then retry Fynn. That error can fail `fynn_chats` inserts before Gemini runs (`provider: null` in Edge logs).
+- `LLM_MODEL`: optional Gemini model override; defaults to `gemini-flash-latest`. Use a full model id in lowercase (e.g. `gemini-flash-latest`). Avoid bare `gemini`. Note: `gemini-2.5-flash` may 404 on some API keys; `gemini-2.0-flash` may return 429 when free-tier quota is exhausted.
+- Device clock skew: if Expo/PostgREST logs `JWT issued at future` (PGRST303), the phone clock is ahead of the server — fix automatic time, sign out/in, then retry Fynn. Fynn may still answer in ephemeral mode, but chats won’t persist until the clock is fixed.
 
 ### OpenAI provider swap
 
@@ -56,7 +56,7 @@ tap Accept, and verify the row). Switch back to the Gemini default after the
 test:
 
 ```bash
-npx supabase secrets set LLM_PROVIDER=gemini LLM_API_KEY=YOUR_GEMINI_KEY LLM_MODEL=gemini-2.0-flash
+npx supabase secrets set LLM_PROVIDER=gemini LLM_API_KEY=YOUR_GEMINI_KEY LLM_MODEL=gemini-flash-latest
 ```
 
 ### Fynn hardening limits

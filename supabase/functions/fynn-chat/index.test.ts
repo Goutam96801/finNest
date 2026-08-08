@@ -261,3 +261,35 @@ Deno.test('Fynn chat returns 401 when authentication fails', async () => {
   assertEquals(response.status, 401)
   assertEquals(await response.json(), { error: 'Unauthorized' })
 })
+
+Deno.test('Fynn chat continues in ephemeral mode when JWT clock skew blocks persistence', async () => {
+  const handler = createFynnChatHandler({
+    getAuthedUserClient: async () => ({ user: { id: 'user-1' }, userClient: {} }),
+    getLlmProvider: () => ({
+      complete: async () => ({ assistantText: 'Ephemeral reply', toolCalls: [] }),
+    }),
+    executeTool: async () => ({ ok: true, result: [] }),
+    persistence: {
+      createChat: async () => {
+        throw new Error('JWT issued at future')
+      },
+      requireChat: async () => {},
+      listMessages: async () => [],
+      saveMessage: async () => {
+        throw new Error('should not save when ephemeral')
+      },
+    },
+  })
+
+  const response = await handler(new Request('http://localhost/fynn-chat', {
+    method: 'POST',
+    body: JSON.stringify({ message: 'Hello despite skew' }),
+  }))
+  const body = await response.json()
+
+  assertEquals(response.status, 200)
+  assertEquals(body.type, 'message')
+  assertEquals(body.text, 'Ephemeral reply')
+  assertStringIncludes(body.chatId, 'ephemeral-')
+  assertStringIncludes(String(body.warning ?? ''), 'device clock')
+})

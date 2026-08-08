@@ -10,6 +10,16 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000
 const MAX_REQUESTS_PER_USER_PER_WINDOW = 20
 const requestTimesByUser = new Map<string, number[]>()
 
+function isClockSkewError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const message = error.message.toLowerCase()
+  return message.includes('jwt issued at future') || message.includes('pgrst303')
+}
+
+function isPersistSkippable(error: unknown): boolean {
+  return isClockSkewError(error)
+}
+
 function isAuthError(error: unknown): boolean {
   return error instanceof Error && (error.message === 'Missing authorization' || error.message === 'Unauthorized')
 }
@@ -221,24 +231,51 @@ export function createFynnChatHandler(
       const requestedChatId = typeof body.chat_id === 'string' && body.chat_id.trim()
         ? body.chat_id.trim()
         : null
-      const chatId = requestedChatId
-        ? (await persistenceLayer.requireChat(userClient, requestedChatId), requestedChatId)
-        : await persistenceLayer.createChat(userClient, user.id, String(body.message || '').trim())
-      const history = requestedChatId
-        ? await persistenceLayer.listMessages(userClient, chatId)
-        : []
-      const messages = parseMessages(history, body.message)
+      let chatId: string
+      let history: ChatMessage[] = []
+      let userMessageId: string
+      let ephemeral = false
+      try {
+        chatId = requestedChatId
+          ? (await persistenceLayer.requireChat(userClient, requestedChatId), requestedChatId)
+          : await persistenceLayer.createChat(userClient, user.id, String(body.message || '').trim())
+        history = requestedChatId
+          ? await persistenceLayer.listMessages(userClient, chatId)
+          : []
+        const parsed = parseMessages(history, body.message)
+        if (!parsed) {
+          errorCode = 'VALIDATION_ERROR'
+          errorMessage = 'Message is required'
+          return json({ error: 'Message is required' }, 400)
+        }
+        userMessageId = await persistenceLayer.saveMessage(userClient, {
+          chatId,
+          userId: user.id,
+          role: 'user',
+          content: parsed.at(-1)!.content,
+        })
+        history = parsed
+      } catch (persistError) {
+        if (!isPersistSkippable(persistError) || requestedChatId) throw persistError
+        // Device clock skew can block JWT inserts; still answer this turn without DB history.
+        ephemeral = true
+        chatId = `ephemeral-${crypto.randomUUID()}`
+        userMessageId = `ephemeral-user-${crypto.randomUUID()}`
+        const parsed = parseMessages([], body.message)
+        if (!parsed) {
+          errorCode = 'VALIDATION_ERROR'
+          errorMessage = 'Message is required'
+          return json({ error: 'Message is required' }, 400)
+        }
+        history = parsed
+        errorMessage = sanitizeErrorMessage(persistError)
+      }
+      const messages = history
       if (!messages) {
         errorCode = 'VALIDATION_ERROR'
         errorMessage = 'Message is required'
         return json({ error: 'Message is required' }, 400)
       }
-      const userMessageId = await persistenceLayer.saveMessage(userClient, {
-        chatId,
-        userId: user.id,
-        role: 'user',
-        content: messages.at(-1)!.content,
-      })
 
       stage = 'provider'
       providerName = dependencies.getLlmProvider === getLlmProvider
@@ -253,18 +290,36 @@ export function createFynnChatHandler(
             throw new Error('Unable to complete chat response')
           }
           stage = 'persist_assistant'
-          const messageId = await persistenceLayer.saveMessage(userClient, {
-            chatId,
-            userId: user.id,
-            role: 'assistant',
-            content: completion.assistantText,
-          })
+          let messageId: string
+          if (ephemeral) {
+            messageId = `ephemeral-assistant-${crypto.randomUUID()}`
+          } else {
+            try {
+              messageId = await persistenceLayer.saveMessage(userClient, {
+                chatId,
+                userId: user.id,
+                role: 'assistant',
+                content: completion.assistantText,
+              })
+            } catch (persistError) {
+              if (!isPersistSkippable(persistError)) throw persistError
+              ephemeral = true
+              messageId = `ephemeral-assistant-${crypto.randomUUID()}`
+              errorMessage = sanitizeErrorMessage(persistError)
+            }
+          }
           return json({
             type: 'message',
             text: completion.assistantText,
             chatId,
             userMessageId,
             messageId,
+            ...(ephemeral
+              ? {
+                warning:
+                  'Chat was not saved because your device clock appears ahead of the server. Enable automatic date/time, then sign out and back in.',
+              }
+              : {}),
           })
         }
 
@@ -288,18 +343,30 @@ export function createFynnChatHandler(
             const proposal = proposalResult(result.result)
             if (proposal) {
               const text = 'Please confirm this change.'
-              const messageId = await persistenceLayer.saveMessage(userClient, {
-                chatId,
-                userId: user.id,
-                role: 'assistant',
-                content: text,
-                proposalMetadata: {
-                  id: proposal.proposal_id,
-                  summary: proposal.summary,
-                  preview: proposal.preview,
-                  status: 'pending',
-                },
-              })
+              let messageId: string
+              if (ephemeral) {
+                messageId = `ephemeral-assistant-${crypto.randomUUID()}`
+              } else {
+                try {
+                  messageId = await persistenceLayer.saveMessage(userClient, {
+                    chatId,
+                    userId: user.id,
+                    role: 'assistant',
+                    content: text,
+                    proposalMetadata: {
+                      id: proposal.proposal_id,
+                      summary: proposal.summary,
+                      preview: proposal.preview,
+                      status: 'pending',
+                    },
+                  })
+                } catch (persistError) {
+                  if (!isPersistSkippable(persistError)) throw persistError
+                  ephemeral = true
+                  messageId = `ephemeral-assistant-${crypto.randomUUID()}`
+                  errorMessage = sanitizeErrorMessage(persistError)
+                }
+              }
               return json({
                 type: 'proposal',
                 proposalId: proposal.proposal_id,
@@ -309,6 +376,12 @@ export function createFynnChatHandler(
                 chatId,
                 userMessageId,
                 messageId,
+                ...(ephemeral
+                  ? {
+                    warning:
+                      'Chat was not saved because your device clock appears ahead of the server. Enable automatic date/time, then sign out and back in.',
+                  }
+                  : {}),
               })
             }
           }
