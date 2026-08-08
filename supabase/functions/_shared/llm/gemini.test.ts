@@ -19,6 +19,7 @@ Deno.test('Gemini provider maps messages, tools, and function calls', async () =
                   name: 'lookup_balance',
                   args: { accountId: 'acc-1' },
                 },
+                thoughtSignature: 'sig-abc',
               },
             ],
           },
@@ -39,6 +40,7 @@ Deno.test('Gemini provider maps messages, tools, and function calls', async () =
           content: '{"accountId":"acc-1"}',
           toolCallId: 'gemini-call-123',
           name: 'lookup_balance',
+          thoughtSignature: 'sig-abc',
         },
         {
           role: 'tool',
@@ -62,7 +64,12 @@ Deno.test('Gemini provider maps messages, tools, and function calls', async () =
 
     assertEquals(result, {
       assistantText: 'I can help.',
-      toolCalls: [{ id: 'gemini-call-123', name: 'lookup_balance', arguments: { accountId: 'acc-1' } }],
+      toolCalls: [{
+        id: 'gemini-call-123',
+        name: 'lookup_balance',
+        arguments: { accountId: 'acc-1' },
+        thoughtSignature: 'sig-abc',
+      }],
     })
     assertEquals(
       request?.url,
@@ -83,6 +90,7 @@ Deno.test('Gemini provider maps messages, tools, and function calls', async () =
                 name: 'lookup_balance',
                 args: { accountId: 'acc-1' },
               },
+              thoughtSignature: 'sig-abc',
             },
           ],
         },
@@ -109,6 +117,92 @@ Deno.test('Gemini provider maps messages, tools, and function calls', async () =
                 type: 'object',
                 properties: { accountId: { type: 'string' } },
                 required: ['accountId'],
+              },
+            },
+          ],
+        },
+      ],
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+Deno.test('Gemini provider coalesces parallel tool calls and echoes thoughtSignature on the first', async () => {
+  const originalFetch = globalThis.fetch
+  let requestBody: unknown
+
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body ?? '{}'))
+    return Response.json({
+      candidates: [{ content: { parts: [{ text: 'Done.' }] } }],
+    })
+  }
+
+  try {
+    const provider = createGeminiProvider('secret-key', 'gemini-flash-latest')
+    await provider.complete({
+      messages: [
+        { role: 'user', content: 'Summarize my money.' },
+        {
+          role: 'assistant',
+          content: '{}',
+          toolCallId: 'call_1',
+          name: 'list_accounts',
+          thoughtSignature: 'parallel-sig',
+        },
+        {
+          role: 'assistant',
+          content: '{}',
+          toolCallId: 'call_2',
+          name: 'list_transactions',
+        },
+        {
+          role: 'tool',
+          content: '{"ok":true,"result":[]}',
+          toolCallId: 'call_1',
+          name: 'list_accounts',
+        },
+        {
+          role: 'tool',
+          content: '{"ok":true,"result":[]}',
+          toolCallId: 'call_2',
+          name: 'list_transactions',
+        },
+      ],
+      tools: [],
+    })
+
+    assertEquals(requestBody, {
+      contents: [
+        { role: 'user', parts: [{ text: 'Summarize my money.' }] },
+        {
+          role: 'model',
+          parts: [
+            {
+              functionCall: { id: 'call_1', name: 'list_accounts', args: {} },
+              thoughtSignature: 'parallel-sig',
+            },
+            {
+              functionCall: { id: 'call_2', name: 'list_transactions', args: {} },
+            },
+          ],
+        },
+        {
+          role: 'user',
+          parts: [
+            {
+              functionResponse: {
+                id: 'call_1',
+                name: 'list_accounts',
+                response: { ok: true, result: [] },
+              },
+            },
+            {
+              functionResponse: {
+                id: 'call_2',
+                name: 'list_transactions',
+                response: { ok: true, result: [] },
               },
             },
           ],

@@ -324,6 +324,8 @@ export function createFynnChatHandler(
         }
 
         stage = 'tools'
+        // Gemini parallel tools: one model turn with all functionCalls (thoughtSignature
+        // on the first), then one user turn with all functionResponses.
         for (const toolCall of completion.toolCalls) {
           toolNames.add(toolCall.name)
           messages.push({
@@ -331,8 +333,13 @@ export function createFynnChatHandler(
             content: JSON.stringify(toolCall.arguments),
             toolCallId: toolCall.id,
             name: toolCall.name,
+            ...(toolCall.thoughtSignature
+              ? { thoughtSignature: toolCall.thoughtSignature }
+              : {}),
           })
+        }
 
+        for (const toolCall of completion.toolCalls) {
           const result = await dependencies.executeTool({
             name: toolCall.name,
             args: toolCall.arguments,

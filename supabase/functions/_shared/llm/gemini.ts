@@ -1,9 +1,22 @@
 import type { ChatMessage, CompleteResult, LlmProvider, ToolDef } from './types.ts'
 
+type GeminiFunctionCall = {
+  id?: string
+  name: string
+  args: Record<string, unknown>
+}
+
 type GeminiPart =
-  | { text: string }
-  | { functionCall: { id?: string; name: string; args: Record<string, unknown> } }
-  | { functionResponse: { id?: string; name: string; response: Record<string, unknown> } }
+  | { text: string; thoughtSignature?: string }
+  | { functionCall: GeminiFunctionCall; thoughtSignature?: string }
+  | {
+    functionResponse: {
+      id?: string
+      name: string
+      response: Record<string, unknown>
+    }
+    thoughtSignature?: string
+  }
 
 type GeminiContent = {
   role?: 'user' | 'model'
@@ -15,6 +28,8 @@ type GeminiResponse = {
     content?: {
       parts?: Array<{
         text?: unknown
+        thoughtSignature?: unknown
+        thought_signature?: unknown
         functionCall?: {
           name?: unknown
           args?: unknown
@@ -38,41 +53,72 @@ function parseObject(content: string): Record<string, unknown> | undefined {
   return undefined
 }
 
-function toGeminiContent(message: ChatMessage): GeminiContent {
-  if (message.role === 'tool') {
-    return {
-      role: 'user',
-      parts: [
-        {
-          functionResponse: {
-            ...(message.toolCallId ? { id: message.toolCallId } : {}),
-            name: message.name ?? 'tool',
-            response: parseObject(message.content) ?? { content: message.content },
-          },
-        },
-      ],
-    }
-  }
+function readThoughtSignature(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
 
-  if (message.role === 'assistant' && message.name) {
-    return {
-      role: 'model',
-      parts: [
-        {
-          functionCall: {
-            ...(message.toolCallId ? { id: message.toolCallId } : {}),
-            name: message.name,
-            args: parseObject(message.content) ?? {},
-          },
-        },
-      ],
-    }
-  }
-
+function toFunctionCallPart(message: ChatMessage): GeminiPart {
   return {
-    role: message.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: message.content }],
+    functionCall: {
+      ...(message.toolCallId ? { id: message.toolCallId } : {}),
+      name: message.name ?? 'tool',
+      args: parseObject(message.content) ?? {},
+    },
+    ...(message.thoughtSignature ? { thoughtSignature: message.thoughtSignature } : {}),
   }
+}
+
+function toFunctionResponsePart(message: ChatMessage): GeminiPart {
+  return {
+    functionResponse: {
+      ...(message.toolCallId ? { id: message.toolCallId } : {}),
+      name: message.name ?? 'tool',
+      response: parseObject(message.content) ?? { content: message.content },
+    },
+  }
+}
+
+/**
+ * Gemini expects parallel tool calls as one model turn (many functionCall parts),
+ * then one user turn with matching functionResponse parts — including thoughtSignature.
+ */
+function toGeminiContents(messages: ChatMessage[]): GeminiContent[] {
+  const contents: GeminiContent[] = []
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index]
+
+    if (message.role === 'assistant' && message.name) {
+      const parts: GeminiPart[] = [toFunctionCallPart(message)]
+      while (
+        index + 1 < messages.length &&
+        messages[index + 1].role === 'assistant' &&
+        messages[index + 1].name
+      ) {
+        index += 1
+        parts.push(toFunctionCallPart(messages[index]))
+      }
+      contents.push({ role: 'model', parts })
+      continue
+    }
+
+    if (message.role === 'tool') {
+      const parts: GeminiPart[] = [toFunctionResponsePart(message)]
+      while (index + 1 < messages.length && messages[index + 1].role === 'tool') {
+        index += 1
+        parts.push(toFunctionResponsePart(messages[index]))
+      }
+      contents.push({ role: 'user', parts })
+      continue
+    }
+
+    contents.push({
+      role: message.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: message.content }],
+    })
+  }
+
+  return contents
 }
 
 function sanitizeSchemaForGemini(value: unknown): unknown {
@@ -122,9 +168,7 @@ export function createGeminiProvider(apiKey: string, model: string): LlmProvider
   return {
     async complete({ messages, tools }): Promise<CompleteResult> {
       const systemMessages = messages.filter((message) => message.role === 'system')
-      const contents = messages
-        .filter((message) => message.role !== 'system')
-        .map(toGeminiContent)
+      const contents = toGeminiContents(messages.filter((message) => message.role !== 'system'))
       const body = {
         ...(systemMessages.length > 0
           ? { systemInstruction: { parts: systemMessages.map(({ content }) => ({ text: content })) } }
@@ -181,6 +225,8 @@ export function createGeminiProvider(apiKey: string, model: string): LlmProvider
       const toolCalls = parts.flatMap((part) => {
         const functionCall = part.functionCall
         if (!functionCall || typeof functionCall.name !== 'string') return []
+        const thoughtSignature = readThoughtSignature(part.thoughtSignature)
+          ?? readThoughtSignature(part.thought_signature)
 
         return [
           {
@@ -192,6 +238,7 @@ export function createGeminiProvider(apiKey: string, model: string): LlmProvider
               !Array.isArray(functionCall.args)
                 ? (functionCall.args as Record<string, unknown>)
                 : {},
+            ...(thoughtSignature ? { thoughtSignature } : {}),
           },
         ]
       })

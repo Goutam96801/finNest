@@ -5,6 +5,8 @@ export type ChatMessage = {
   content: string
   toolCallId?: string
   name?: string
+  /** Gemini thinking models require this to be echoed on later functionCall parts. */
+  thoughtSignature?: string
 }
 
 export type ToolDef = {
@@ -17,6 +19,7 @@ export type ToolCall = {
   id: string
   name: string
   arguments: Record<string, unknown>
+  thoughtSignature?: string
 }
 
 export type CompleteResult = {
