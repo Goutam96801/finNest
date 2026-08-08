@@ -2,6 +2,26 @@ import { getAuthedUserClient } from '../_shared/auth.ts'
 import { corsHeaders, json } from '../_shared/cors.ts'
 import { applyProposal } from '../_shared/tools/apply.ts'
 
+function isAuthError(error: unknown): boolean {
+  return error instanceof Error && (error.message === 'Missing authorization' || error.message === 'Unauthorized')
+}
+
+function logConfirmRequest(input: {
+  userId: string | null
+  toolName: string | null
+  latencyMs: number
+  errorCode: string | null
+}) {
+  console.log(JSON.stringify({
+    event: 'fynn_confirm_request',
+    user_id: input.userId,
+    tool_names: input.toolName ? [input.toolName] : [],
+    latency_ms: input.latencyMs,
+    provider: null,
+    error_code: input.errorCode,
+  }))
+}
+
 type Proposal = {
   id: string
   user_id: string
@@ -107,13 +127,26 @@ export function createFynnConfirmHandler(
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
-    try {
-      const body = parseRequest(await req.json().catch(() => null))
-      if (!body) return json({ error: 'proposal_id and action are required' }, 400)
+    const startedAt = Date.now()
+    let userId: string | null = null
+    let toolName: string | null = null
+    let errorCode: string | null = null
 
+    try {
       const { user, userClient } = await dependencies.getAuthedUserClient(req)
+      userId = user.id
+      const body = parseRequest(await req.json().catch(() => null))
+      if (!body) {
+        errorCode = 'VALIDATION_ERROR'
+        return json({ error: 'proposal_id and action are required' }, 400)
+      }
+
       const proposal = await dependencies.getProposal(userClient, body.proposalId, user.id)
-      if (!proposal) return json({ error: 'Proposal not found or already resolved' }, 404)
+      if (!proposal) {
+        errorCode = 'PROPOSAL_NOT_FOUND'
+        return json({ error: 'Proposal not found or already resolved' }, 404)
+      }
+      toolName = proposal.tool_name
 
       const resolvedAt = new Date().toISOString()
       if (new Date(proposal.expires_at).getTime() < Date.now()) {
@@ -121,17 +154,24 @@ export function createFynnConfirmHandler(
           status: 'expired',
           resolved_at: resolvedAt,
         })
+        errorCode = 'PROPOSAL_EXPIRED'
         return json({ error: 'Proposal has expired' }, 400)
       }
 
       if (body.action === 'reject') {
         const claimed = await dependencies.claimProposal(userClient, proposal.id, user.id, 'rejected')
-        if (!claimed) return json({ error: 'Proposal not found or already resolved' }, 404)
+        if (!claimed) {
+          errorCode = 'PROPOSAL_NOT_FOUND'
+          return json({ error: 'Proposal not found or already resolved' }, 404)
+        }
         return json({ success: true, status: 'rejected' })
       }
 
       const claimed = await dependencies.claimProposal(userClient, proposal.id, user.id, 'accepted')
-      if (!claimed) return json({ error: 'Proposal not found or already resolved' }, 404)
+      if (!claimed) {
+        errorCode = 'PROPOSAL_NOT_FOUND'
+        return json({ error: 'Proposal not found or already resolved' }, 404)
+      }
 
       let data: unknown
       try {
@@ -142,10 +182,19 @@ export function createFynnConfirmHandler(
       }
       return json({ success: true, status: 'accepted', data })
     } catch (error) {
+      const unauthorized = isAuthError(error)
+      errorCode = unauthorized ? 'AUTH_FAILED' : 'REQUEST_FAILED'
       return json(
         { error: error instanceof Error ? error.message : 'Unable to confirm proposal' },
-        400
+        unauthorized ? 401 : 400
       )
+    } finally {
+      logConfirmRequest({
+        userId,
+        toolName,
+        latencyMs: Date.now() - startedAt,
+        errorCode,
+      })
     }
   }
 }

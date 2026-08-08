@@ -293,3 +293,65 @@ Deno.test('applyProposal creates a subscription notification and requests remind
     },
   })
 })
+
+Deno.test('applyProposal keeps a created subscription when its notification insert fails', async () => {
+  const accountQuery = {
+    eq: () => accountQuery,
+    maybeSingle: async () => ({ data: { id: 'account-1' }, error: null }),
+  }
+  const userClient = {
+    from: (table: string) => {
+      if (table === 'accounts') return { select: () => accountQuery }
+      if (table === 'subscriptions') {
+        return {
+          insert: (row: Record<string, unknown>) => ({
+            select: () => ({
+              single: async () => ({ data: { id: 'subscription-1', ...row }, error: null }),
+            }),
+          }),
+        }
+      }
+      if (table === 'notifications') {
+        return {
+          insert: () => ({
+            select: () => ({
+              single: async () => ({ data: null, error: new Error('notification unavailable') }),
+            }),
+          }),
+        }
+      }
+      throw new Error(`Unexpected table: ${table}`)
+    },
+  }
+
+  const result = await applyProposal(userClient as never, 'user-1', {
+    tool_name: 'propose_create_subscription',
+    payload: {
+      subscription: {
+        account_id: 'account-1',
+        name: 'Netflix',
+        amount: 199,
+        category: 'entertainment',
+        frequency: 'monthly',
+        next_due_date: '2026-09-01',
+        notes: null,
+      },
+    },
+  })
+
+  assertEquals(result, {
+    data: {
+      id: 'subscription-1',
+      user_id: 'user-1',
+      account_id: 'account-1',
+      name: 'Netflix',
+      amount: 199,
+      category: 'entertainment',
+      frequency: 'monthly',
+      next_due_date: '2026-09-01',
+      notes: null,
+      is_active: true,
+    },
+    reminderResyncRequired: true,
+  })
+})

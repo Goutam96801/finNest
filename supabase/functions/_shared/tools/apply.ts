@@ -77,6 +77,11 @@ export async function applyProposal(
   userId: string,
   proposal: Proposal
 ): Promise<unknown> {
+  // Known limitation: some proposal handlers require multiple database writes, but
+  // this Edge Function has no transaction boundary. A later failure can leave an
+  // earlier write applied; confirm currently rolls the proposal back to pending,
+  // so retrying can repeat side effects. Move these handlers into transactional
+  // Postgres RPCs (or make them idempotent) before treating retries as safe.
   switch (proposal.tool_name) {
     case 'propose_create_transaction': {
       const transaction = await buildTransactionPayload(
@@ -204,7 +209,16 @@ export async function applyProposal(
         })
         .select()
         .single()
-      if (notificationError) throw notificationError
+      if (notificationError) {
+        // The subscription already exists, so do not roll back the proposal and
+        // invite a retry that creates a duplicate subscription.
+        console.error(JSON.stringify({
+          event: 'fynn_subscription_notification_failed',
+          user_id: userId,
+          tool_name: proposal.tool_name,
+          error_code: 'NOTIFICATION_INSERT_FAILED',
+        }))
+      }
       return { data, reminderResyncRequired: true }
     }
     case 'propose_update_subscription': {

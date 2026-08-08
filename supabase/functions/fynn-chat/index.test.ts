@@ -240,3 +240,24 @@ Deno.test('Fynn chat limits each user to 20 turns per minute', async () => {
   assertEquals(response.status, 429)
   assertEquals(await response.json(), { error: 'Too many Fynn chat requests. Try again later.' })
 })
+
+Deno.test('Fynn chat returns 401 when authentication fails', async () => {
+  const handler = createFynnChatHandler({
+    getAuthedUserClient: async () => {
+      throw new Error('Unauthorized')
+    },
+    getLlmProvider: () => ({
+      complete: async () => ({ assistantText: 'unused', toolCalls: [] }),
+    }),
+    executeTool: async () => ({ ok: true, result: [] }),
+    persistence: testPersistence(),
+  })
+
+  const response = await handler(new Request('http://localhost/fynn-chat', {
+    method: 'POST',
+    body: JSON.stringify({ message: 'Hello' }),
+  }))
+
+  assertEquals(response.status, 401)
+  assertEquals(await response.json(), { error: 'Unauthorized' })
+})

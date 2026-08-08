@@ -104,3 +104,24 @@ Deno.test('Fynn confirm does not apply a proposal when an atomic claim loses the
   assertEquals(await response.json(), { error: 'Proposal not found or already resolved' })
   assertEquals(applied, false)
 })
+
+Deno.test('Fynn confirm returns 401 when authentication fails', async () => {
+  const handler = createFynnConfirmHandler({
+    getAuthedUserClient: async () => {
+      throw new Error('Missing authorization')
+    },
+    getProposal: async () => null,
+    claimProposal: async () => null,
+    updateProposal: async () => {},
+    rollbackAcceptedProposal: async () => {},
+    applyProposal: async () => ({}),
+  })
+
+  const response = await handler(new Request('http://localhost/fynn-confirm', {
+    method: 'POST',
+    body: JSON.stringify({ proposal_id: 'proposal-1', action: 'accept' }),
+  }))
+
+  assertEquals(response.status, 401)
+  assertEquals(await response.json(), { error: 'Missing authorization' })
+})

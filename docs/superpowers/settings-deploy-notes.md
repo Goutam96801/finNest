@@ -67,3 +67,13 @@ npx supabase secrets set LLM_PROVIDER=gemini LLM_API_KEY=YOUR_GEMINI_KEY LLM_MOD
   an in-memory `Map` per Edge isolate, so it is best-effort and does not enforce
   a shared global limit across isolates or deployments. Replace it with a shared
   store before relying on it for abuse prevention at scale.
+
+### Fynn apply atomicity follow-up
+
+Some `applyProposal` handlers use multiple database writes without a shared
+transaction. A failure after an earlier write can leave partial state, and
+`fynn-confirm` currently returns the proposal to `pending` for retry. Subscription
+creation handles its follow-up notification as best-effort so a notification
+failure does not trigger a duplicate subscription on retry. Account and other
+multi-step applies still need transactional Postgres RPCs or idempotency keys
+before retries can be considered safe.

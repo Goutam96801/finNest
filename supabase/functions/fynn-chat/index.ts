@@ -10,6 +10,27 @@ const RATE_LIMIT_WINDOW_MS = 60 * 1000
 const MAX_REQUESTS_PER_USER_PER_WINDOW = 20
 const requestTimesByUser = new Map<string, number[]>()
 
+function isAuthError(error: unknown): boolean {
+  return error instanceof Error && (error.message === 'Missing authorization' || error.message === 'Unauthorized')
+}
+
+function logChatRequest(input: {
+  userId: string | null
+  toolNames: string[]
+  latencyMs: number
+  provider: string | null
+  errorCode: string | null
+}) {
+  console.log(JSON.stringify({
+    event: 'fynn_chat_request',
+    user_id: input.userId,
+    tool_names: input.toolNames,
+    latency_ms: input.latencyMs,
+    provider: input.provider,
+    error_code: input.errorCode,
+  }))
+}
+
 function isRateLimited(userId: string, now = Date.now()): boolean {
   const requestTimes = (requestTimesByUser.get(userId) ?? [])
     .filter((requestTime) => requestTime > now - RATE_LIMIT_WINDOW_MS)
@@ -160,13 +181,22 @@ export function createFynnChatHandler(
     if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
 
+    const startedAt = Date.now()
+    let userId: string | null = null
+    let providerName: string | null = null
+    const toolNames = new Set<string>()
+    let errorCode: string | null = null
+
     try {
       const { user, userClient } = await dependencies.getAuthedUserClient(req)
+      userId = user.id
       const body = await req.json().catch(() => ({}))
       if (typeof body.message !== 'string' || !body.message.trim()) {
+        errorCode = 'VALIDATION_ERROR'
         return json({ error: 'Message is required' }, 400)
       }
       if (isRateLimited(user.id)) {
+        errorCode = 'RATE_LIMITED'
         return json({ error: 'Too many Fynn chat requests. Try again later.' }, 429)
       }
       const requestedChatId = typeof body.chat_id === 'string' && body.chat_id.trim()
@@ -179,7 +209,10 @@ export function createFynnChatHandler(
         ? await persistenceLayer.listMessages(userClient, chatId)
         : []
       const messages = parseMessages(history, body.message)
-      if (!messages) return json({ error: 'Message is required' }, 400)
+      if (!messages) {
+        errorCode = 'VALIDATION_ERROR'
+        return json({ error: 'Message is required' }, 400)
+      }
       const userMessageId = await persistenceLayer.saveMessage(userClient, {
         chatId,
         userId: user.id,
@@ -188,6 +221,9 @@ export function createFynnChatHandler(
       })
 
       const provider = dependencies.getLlmProvider()
+      providerName = dependencies.getLlmProvider === getLlmProvider
+        ? (Deno.env.get('LLM_PROVIDER') ?? 'gemini').toLowerCase()
+        : 'injected'
       for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
         const completion = await provider.complete({ messages, tools: TOOL_DEFS })
         if (completion.toolCalls.length === 0) {
@@ -210,6 +246,7 @@ export function createFynnChatHandler(
         }
 
         for (const toolCall of completion.toolCalls) {
+          toolNames.add(toolCall.name)
           messages.push({
             role: 'assistant',
             content: JSON.stringify(toolCall.arguments),
@@ -262,10 +299,20 @@ export function createFynnChatHandler(
 
       throw new Error('Unable to complete chat response')
     } catch (error) {
+      const unauthorized = isAuthError(error)
+      errorCode = unauthorized ? 'AUTH_FAILED' : 'REQUEST_FAILED'
       return json(
         { error: error instanceof Error ? error.message : 'Fynn chat failed' },
-        400
+        unauthorized ? 401 : 400
       )
+    } finally {
+      logChatRequest({
+        userId,
+        toolNames: [...toolNames],
+        latencyMs: Date.now() - startedAt,
+        provider: providerName,
+        errorCode,
+      })
     }
   }
 }

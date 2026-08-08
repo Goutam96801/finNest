@@ -9,6 +9,7 @@ type ToolContext = {
 type Row = Record<string, unknown>
 
 const MAX_LIST_ROWS = 25
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function getLimit(value: unknown): number {
   const parsed = typeof value === 'number' ? value : Number(value)
@@ -74,7 +75,9 @@ export async function listTransactions({ args, userId, userClient }: ToolContext
   if (type && ['expense', 'income', 'transfer'].includes(type)) query = query.eq('type', type)
 
   const accountId = getString(args.accountId)
-  if (accountId) query = query.or(`account_id.eq.${accountId},to_account_id.eq.${accountId}`)
+  if (accountId && UUID_PATTERN.test(accountId)) {
+    query = query.or(`account_id.eq.${accountId},to_account_id.eq.${accountId}`)
+  }
 
   const from = getString(args.from)
   if (from) query = query.gte('transaction_date', from)
