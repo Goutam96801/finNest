@@ -8,8 +8,16 @@ import {
   listTransactions,
 } from './reads.ts'
 import {
+  proposeCreateAccount,
+  proposeCreateSubscription,
   proposeCreateTransaction,
+  proposeDeleteAccount,
+  proposeDeleteSubscription,
   proposeDeleteTransaction,
+  proposeMarkNotificationRead,
+  proposeUpdateAccount,
+  proposeUpdateProfile,
+  proposeUpdateSubscription,
   proposeUpdateTransaction,
 } from './proposals.ts'
 
@@ -53,6 +61,30 @@ export async function executeTool(
         break
       case 'propose_delete_transaction':
         result = await proposeDeleteTransaction(input)
+        break
+      case 'propose_create_account':
+        result = await proposeCreateAccount(input)
+        break
+      case 'propose_update_account':
+        result = await proposeUpdateAccount(input)
+        break
+      case 'propose_delete_account':
+        result = await proposeDeleteAccount(input)
+        break
+      case 'propose_create_subscription':
+        result = await proposeCreateSubscription(input)
+        break
+      case 'propose_update_subscription':
+        result = await proposeUpdateSubscription(input)
+        break
+      case 'propose_delete_subscription':
+        result = await proposeDeleteSubscription(input)
+        break
+      case 'propose_update_profile':
+        result = await proposeUpdateProfile(input)
+        break
+      case 'propose_mark_notification_read':
+        result = await proposeMarkNotificationRead(input)
         break
       default:
         return { ok: false, error: 'Unknown tool' }
