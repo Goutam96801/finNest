@@ -6,11 +6,12 @@ import { StyleSheet } from 'react-native'
 const _layout = () => {
     return (
         <Tabs
-        tabBar={(props) => <CustomTabs {...props} />}
-        screenOptions={{headerShown:false}}
+            tabBar={(props) => <CustomTabs {...props} />}
+            screenOptions={{ headerShown: false }}
         >
             <Tabs.Screen name="index" />
             <Tabs.Screen name="statistics" />
+            <Tabs.Screen name="fynn" />
             <Tabs.Screen name="accounts" />
             <Tabs.Screen name="profile" />
         </Tabs>

@@ -30,6 +30,13 @@ export default function CustomTabs({ state, descriptors, navigation }: BottomTab
         color={isFocused ? '#a3e635' : '#a3a3a3'}
       />
     ),
+    fynn: (isFocused) => (
+      <Icons.Heart
+        size={AVATAR_SIZE}
+        weight={isFocused ? 'fill' : 'regular'}
+        color={isFocused ? '#a3e635' : '#a3a3a3'}
+      />
+    ),
     accounts: (isFocused) => (
       <Icons.Wallet
         size={AVATAR_SIZE}
