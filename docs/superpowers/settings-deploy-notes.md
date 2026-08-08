@@ -36,7 +36,8 @@ npx supabase secrets set LLM_PROVIDER=gemini LLM_API_KEY=YOUR_KEY LLM_MODEL=gemi
 
 - `LLM_PROVIDER`: `gemini` (default)
 - `LLM_API_KEY`: Gemini API key, stored only in Supabase Edge Function secrets
-- `LLM_MODEL`: optional Gemini model override; defaults to `gemini-2.0-flash`
+- `LLM_MODEL`: optional Gemini model override; defaults to `gemini-2.0-flash`. Use a full model id in lowercase (e.g. `gemini-2.5-flash`, not `gemini` or `gemini-2.5-flasH`).
+- Device clock skew: if Expo/PostgREST logs `JWT issued at future` (PGRST303), the phone clock is ahead of the server — fix automatic time, sign out/in, then retry Fynn. That error can fail `fynn_chats` inserts before Gemini runs (`provider: null` in Edge logs).
 
 ### OpenAI provider swap
 

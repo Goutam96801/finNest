@@ -14,12 +14,23 @@ function isAuthError(error: unknown): boolean {
   return error instanceof Error && (error.message === 'Missing authorization' || error.message === 'Unauthorized')
 }
 
+function sanitizeErrorMessage(error: unknown): string | null {
+  if (!(error instanceof Error) || !error.message.trim()) return null
+  // Never echo secrets if a provider leak somehow includes them.
+  return error.message
+    .replace(/AIza[0-9A-Za-z_-]{10,}/g, '[redacted]')
+    .replace(/sk-[0-9A-Za-z_-]{10,}/g, '[redacted]')
+    .slice(0, 300)
+}
+
 function logChatRequest(input: {
   userId: string | null
   toolNames: string[]
   latencyMs: number
   provider: string | null
   errorCode: string | null
+  stage: string | null
+  errorMessage: string | null
 }) {
   console.log(JSON.stringify({
     event: 'fynn_chat_request',
@@ -28,6 +39,8 @@ function logChatRequest(input: {
     latency_ms: input.latencyMs,
     provider: input.provider,
     error_code: input.errorCode,
+    stage: input.stage,
+    error_message: input.errorMessage,
   }))
 }
 
@@ -184,21 +197,27 @@ export function createFynnChatHandler(
     const startedAt = Date.now()
     let userId: string | null = null
     let providerName: string | null = null
+    let stage: string | null = 'auth'
+    let errorMessage: string | null = null
     const toolNames = new Set<string>()
     let errorCode: string | null = null
 
     try {
       const { user, userClient } = await dependencies.getAuthedUserClient(req)
       userId = user.id
+      stage = 'validate'
       const body = await req.json().catch(() => ({}))
       if (typeof body.message !== 'string' || !body.message.trim()) {
         errorCode = 'VALIDATION_ERROR'
+        errorMessage = 'Message is required'
         return json({ error: 'Message is required' }, 400)
       }
       if (isRateLimited(user.id)) {
         errorCode = 'RATE_LIMITED'
+        errorMessage = 'Too many Fynn chat requests. Try again later.'
         return json({ error: 'Too many Fynn chat requests. Try again later.' }, 429)
       }
+      stage = 'persist'
       const requestedChatId = typeof body.chat_id === 'string' && body.chat_id.trim()
         ? body.chat_id.trim()
         : null
@@ -211,6 +230,7 @@ export function createFynnChatHandler(
       const messages = parseMessages(history, body.message)
       if (!messages) {
         errorCode = 'VALIDATION_ERROR'
+        errorMessage = 'Message is required'
         return json({ error: 'Message is required' }, 400)
       }
       const userMessageId = await persistenceLayer.saveMessage(userClient, {
@@ -220,16 +240,19 @@ export function createFynnChatHandler(
         content: messages.at(-1)!.content,
       })
 
-      const provider = dependencies.getLlmProvider()
+      stage = 'provider'
       providerName = dependencies.getLlmProvider === getLlmProvider
         ? (Deno.env.get('LLM_PROVIDER') ?? 'gemini').toLowerCase()
         : 'injected'
+      const provider = dependencies.getLlmProvider()
+      stage = 'llm'
       for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
         const completion = await provider.complete({ messages, tools: TOOL_DEFS })
         if (completion.toolCalls.length === 0) {
           if (!completion.assistantText?.trim()) {
             throw new Error('Unable to complete chat response')
           }
+          stage = 'persist_assistant'
           const messageId = await persistenceLayer.saveMessage(userClient, {
             chatId,
             userId: user.id,
@@ -245,6 +268,7 @@ export function createFynnChatHandler(
           })
         }
 
+        stage = 'tools'
         for (const toolCall of completion.toolCalls) {
           toolNames.add(toolCall.name)
           messages.push({
@@ -301,8 +325,9 @@ export function createFynnChatHandler(
     } catch (error) {
       const unauthorized = isAuthError(error)
       errorCode = unauthorized ? 'AUTH_FAILED' : 'REQUEST_FAILED'
+      errorMessage = sanitizeErrorMessage(error) ?? 'Fynn chat failed'
       return json(
-        { error: error instanceof Error ? error.message : 'Fynn chat failed' },
+        { error: errorMessage },
         unauthorized ? 401 : 400
       )
     } finally {
@@ -312,6 +337,8 @@ export function createFynnChatHandler(
         latencyMs: Date.now() - startedAt,
         provider: providerName,
         errorCode,
+        stage,
+        errorMessage,
       })
     }
   }

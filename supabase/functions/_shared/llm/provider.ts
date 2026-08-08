@@ -12,8 +12,10 @@ export function getLlmProvider(): LlmProvider {
   if (!apiKey) throw new Error('LLM_API_KEY is not set')
 
   if (provider === 'openai') {
-    return createOpenAiProvider(apiKey, Deno.env.get('LLM_MODEL') ?? 'gpt-4o-mini')
+    const model = (Deno.env.get('LLM_MODEL') ?? 'gpt-4o-mini').trim().toLowerCase()
+    return createOpenAiProvider(apiKey, model)
   }
 
-  return createGeminiProvider(apiKey, Deno.env.get('LLM_MODEL') ?? 'gemini-2.0-flash')
+  const model = (Deno.env.get('LLM_MODEL') ?? 'gemini-2.0-flash').trim().toLowerCase()
+  return createGeminiProvider(apiKey, model)
 }
