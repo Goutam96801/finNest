@@ -129,7 +129,7 @@ export default function FynnProScreen() {
 
           <Animated.View entering={FadeInDown.delay(60).springify().damping(40).stiffness(200)}>
             <View className={`mt-4 rounded-2xl border border-[#404040] bg-[#171717] px-4 py-4 ${subscribed ? '' : 'opacity-50'}`}>
-              <Typo size={13} className="text-neutral-400">Today's AI usage</Typo>
+              <Typo size={13} className="text-neutral-400">{`Today's AI usage`}</Typo>
               <Typo size={22} fontWeight="600" className="mt-1 text-neutral-100">
                 {subscribed ? `${used} / ${limit}` : `0 / ${limit}`}
               </Typo>

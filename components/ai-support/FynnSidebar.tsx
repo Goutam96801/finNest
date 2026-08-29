@@ -58,12 +58,13 @@ function groupChats(chats: FynnSidebarChat[]): ChatGroup[] {
     else earlier.push(chat)
   }
 
-  return [
+  const groups: ChatGroup[] = [
     { key: 'today', title: 'Today', chats: today },
     { key: 'yesterday', title: 'Yesterday', chats: yesterday },
     { key: 'week', title: 'This week', chats: thisWeek },
     { key: 'earlier', title: 'Earlier', chats: earlier },
-  ].filter((group) => group.chats.length > 0)
+  ]
+  return groups.filter((group) => group.chats.length > 0)
 }
 
 export default function FynnSidebar({

@@ -138,7 +138,9 @@ export async function openFynnCheckout(
   const order = await createFynnOrder(plan)
   let RazorpayCheckout: { open: (options: Record<string, unknown>) => Promise<unknown> }
   try {
-    RazorpayCheckout = require('react-native-razorpay').default
+    // Lazy load so Expo Go / EAS Update can boot without the native SDK.
+    const mod = await import('react-native-razorpay')
+    RazorpayCheckout = mod.default
   } catch {
     throw new Error('Razorpay native module is missing. Build with npx expo run:android.')
   }
