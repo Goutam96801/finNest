@@ -1,4 +1,5 @@
 import BackButton from '@/components/BackButton'
+import AppRefreshControl from '@/components/AppRefreshControl'
 import BottomSheetSelect, { type BottomSheetSelectHandle } from '@/components/BottomSheetSelect'
 import DateRangeBottomSheet, {
   dateRangeChipLabel,
@@ -83,6 +84,7 @@ const TransactionsScreen = () => {
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -159,6 +161,15 @@ const TransactionsScreen = () => {
     }, [load])
   )
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      await load('reset')
+    } finally {
+      setRefreshing(false)
+    }
+  }, [load])
+
   const accountOptions = useMemo(
     () => [
       { label: 'All accounts', value: '' },
@@ -229,6 +240,7 @@ const TransactionsScreen = () => {
             data={items}
             keyExtractor={(item) => item.id ?? `${item.accountId}-${item.date}`}
             showsVerticalScrollIndicator={false}
+            refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
             contentContainerStyle={{ gap: 12, paddingBottom: 32, flexGrow: 1 }}
             ListEmptyComponent={
               <EmptyState

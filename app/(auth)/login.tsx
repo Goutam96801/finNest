@@ -92,7 +92,7 @@ const Login = () => {
                     className='flex-row justify-center items-center gap-[5px]'
                 >
                     <Typo size={15}>
-                        Don't have an account?
+                        Don&apos;t have an account?
                     </Typo>
                     <Pressable onPress={() => router.replace("/(auth)/register")}>
                         <Typo size={15} fontWeight={'700'} color='#a3e635'>

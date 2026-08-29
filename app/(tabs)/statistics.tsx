@@ -1,4 +1,5 @@
 import BottomSheetSelect, { type BottomSheetSelectHandle } from '@/components/BottomSheetSelect'
+import AppRefreshControl from '@/components/AppRefreshControl'
 import EmptyState from '@/components/EmptyState'
 import Loading from '@/components/Loading'
 import ScreenWrapper from '@/components/ScreenWrapper'
@@ -78,6 +79,7 @@ const Statistics = () => {
   const [loadingTrend, setLoadingTrend] = useState(true)
   const [loadingPie, setLoadingPie] = useState(true)
   const [pageLoading, setPageLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
 
   const accountOptions = useMemo(
     () => [
@@ -95,13 +97,15 @@ const Statistics = () => {
   const accountLabel =
     accountOptions.find((option) => option.value === accountId)?.label ?? 'All accounts'
 
-  const loadStats = useCallback(async () => {
+  const loadStats = useCallback(async (opts?: { silent?: boolean }) => {
     if (!user?.id) return
 
-    if (!hasLoadedOnce.current) setPageLoading(true)
-    setLoadingBar(true)
-    setLoadingTrend(true)
-    setLoadingPie(true)
+    if (!opts?.silent && !hasLoadedOnce.current) setPageLoading(true)
+    if (!opts?.silent) {
+      setLoadingBar(true)
+      setLoadingTrend(true)
+      setLoadingPie(true)
+    }
 
     try {
       const [accountRows, result] = await Promise.all([
@@ -125,10 +129,12 @@ const Statistics = () => {
       setLoadingPie(false)
     } finally {
       setPageLoading(false)
-      // Reveal charts one-by-one so each card shows its own loader state
-      setLoadingBar(false)
-      setTimeout(() => setLoadingTrend(false), 120)
-      setTimeout(() => setLoadingPie(false), 220)
+      if (!opts?.silent) {
+        // Reveal charts one-by-one so each card shows its own loader state
+        setLoadingBar(false)
+        setTimeout(() => setLoadingTrend(false), 120)
+        setTimeout(() => setLoadingPie(false), 220)
+      }
     }
   }, [user?.id, period, accountId, weekStartsOn])
 
@@ -142,6 +148,15 @@ const Statistics = () => {
     if (!hasLoadedOnce.current) return
     loadStats()
   }, [period, accountId])
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      await loadStats({ silent: true })
+    } finally {
+      setRefreshing(false)
+    }
+  }, [loadStats])
 
   const barMax = useMemo(() => {
     const max = stats.series.reduce(
@@ -231,7 +246,11 @@ const Statistics = () => {
         {pageLoading && !hasLoadedOnce.current ? (
           <Loading />
         ) : (
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 40 }}
+            refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          >
             <Animated.View
               entering={FadeInDown.delay(40).springify().damping(40).stiffness(200)}
               className="mb-5"

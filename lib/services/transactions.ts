@@ -177,6 +177,10 @@ export async function createTransaction(
     const { data, error } = await supabase.from('transactions').insert(payload).select().single()
     if (error) return { success: false, msg: error.message }
 
+    void import('@/lib/services/lowBalanceAlerts').then(({ queueLowBalanceCheck }) =>
+      queueLowBalanceCheck(userId)
+    )
+
     return {
       success: true,
       data: mapTransactionRow(data as TransactionRow),
@@ -278,6 +282,10 @@ export async function updateTransaction(
 
     if (error) return { success: false, msg: error.message }
 
+    void import('@/lib/services/lowBalanceAlerts').then(({ queueLowBalanceCheck }) =>
+      queueLowBalanceCheck(userId)
+    )
+
     return {
       success: true,
       data: mapTransactionRow(data as TransactionRow),
@@ -300,6 +308,10 @@ export async function deleteTransaction(userId: string, transactionId: string): 
       .eq('user_id', userId)
 
     if (error) return { success: false, msg: error.message }
+
+    void import('@/lib/services/lowBalanceAlerts').then(({ queueLowBalanceCheck }) =>
+      queueLowBalanceCheck(userId)
+    )
 
     return { success: true, msg: 'Transaction deleted successfully' }
   } catch (error: any) {

@@ -4,6 +4,7 @@ import {
   parseReminderData,
   resyncSubscriptionRemindersForUser,
 } from '@/lib/services/localReminders'
+import { router } from 'expo-router'
 import * as Notifications from 'expo-notifications'
 import React, { PropsWithChildren, useEffect, useRef } from 'react'
 import { AppState, type AppStateStatus } from 'react-native'
@@ -57,6 +58,11 @@ export function SubscriptionRemindersProvider({ children }: PropsWithChildren) {
 
     const response = Notifications.addNotificationResponseReceivedListener((event) => {
       void mirror(event.notification.request.content.data as Record<string, unknown>)
+      try {
+        router.push('/(modals)/notificationsModal')
+      } catch {
+        // Navigation may not be ready yet (cold start) — in-app row still lands.
+      }
     })
 
     void Notifications.getLastNotificationResponseAsync().then((last) => {

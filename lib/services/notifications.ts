@@ -58,19 +58,23 @@ export async function getNotifications(userId: string) {
 
 export async function getNotificationsPage(
   userId: string,
-  params: { limit?: number; offset?: number } = {}
+  params: { limit?: number; offset?: number; unreadOnly?: boolean } = {}
 ) {
   if (!userId) throw new Error('User not authenticated')
 
   const limit = params.limit ?? 20
   const offset = params.offset ?? 0
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('notifications')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1)
+
+  if (params.unreadOnly) query = query.eq('is_read', false)
+
+  const { data, error } = await query
 
   if (error) throw error
 
@@ -111,6 +115,58 @@ export async function markAllNotificationsRead(userId: string): Promise<Response
 
   if (error) return { success: false, msg: error.message }
   return { success: true }
+}
+
+export async function deleteNotification(userId: string, notificationId: string): Promise<ResponseType> {
+  const { error } = await supabase
+    .from('notifications')
+    .delete()
+    .eq('id', notificationId)
+    .eq('user_id', userId)
+
+  if (error) return { success: false, msg: error.message }
+  return { success: true }
+}
+
+export function formatRelativeTime(iso: string) {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  const diffMs = Date.now() - date.getTime()
+  const minutes = Math.max(0, Math.floor(diffMs / 60000))
+  if (minutes < 1) return 'Just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days === 1) return 'Yesterday'
+  if (days < 7) return `${days}d ago`
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+export function formatNotificationDayLabel(iso: string) {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+  const diffDays = Math.round((startOfToday - startOfDay) / 86400000)
+  if (diffDays === 0) return 'Today'
+  if (diffDays === 1) return 'Yesterday'
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
+  })
+}
+
+export function isSameCalendarDay(a: string, b: string) {
+  const left = new Date(a)
+  const right = new Date(b)
+  return (
+    left.getFullYear() === right.getFullYear()
+    && left.getMonth() === right.getMonth()
+    && left.getDate() === right.getDate()
+  )
 }
 
 export async function createNotification(

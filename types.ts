@@ -1,5 +1,4 @@
 import { Href } from "expo-router";
-import { Firestore, Timestamp } from "firebase/firestore";
 import { Icon } from "phosphor-react-native";
 import React, { ReactNode } from "react";
 import {
@@ -37,6 +36,7 @@ export type TypoProps = {
   fontWeight?: TextStyle["fontWeight"];
   children: any | null;
   className?: string;
+  style?: TextStyle;
   textProps?: TextProps;
 };
 
@@ -73,7 +73,7 @@ export type TransactionType = {
   type: "expense" | "income" | "transfer";
   amount: number;
   category?: string | null;
-  date: Date | Timestamp | string;
+  date: Date | string;
   description?: string | null;
   notes?: string | null;
   image?: any;
@@ -114,7 +114,7 @@ export interface InputProps extends TextInputProps {
   icon?: React.ReactNode;
   containerClassName?: string;
   inputClassName?: string;
-  inputRef?: React.RefObject<TextInput>;
+  inputRef?: React.RefObject<TextInput | null>;
   //   label?: string;
   //   error?: string;
 }

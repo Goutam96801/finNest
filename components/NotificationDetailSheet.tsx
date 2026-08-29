@@ -1,6 +1,10 @@
 import Typo from '@/components/Typo'
 import { showAlert } from '@/context/alertContext'
-import type { AppNotification } from '@/lib/services/notifications'
+import {
+  deleteNotification,
+  formatRelativeTime,
+  type AppNotification,
+} from '@/lib/services/notifications'
 import {
   getSubscriptionById,
   markSubscriptionPaid,
@@ -15,7 +19,7 @@ import {
   type BottomSheetBackdropProps,
 } from '@gorhom/bottom-sheet'
 import { useRouter } from 'expo-router'
-import { PencilSimple } from 'phosphor-react-native'
+import { PencilSimple, Trash } from 'phosphor-react-native'
 import React, {
   forwardRef,
   useCallback,
@@ -35,6 +39,7 @@ export type NotificationDetailSheetHandle = {
 type NotificationDetailSheetProps = {
   userId?: string
   onActionComplete?: () => void
+  onDeleted?: (notificationId: string) => void
 }
 
 const formatDue = (value: string) => {
@@ -42,15 +47,11 @@ const formatDue = (value: string) => {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-const formatNotificationTime = (value: string) => {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+const TYPE_LABEL: Record<AppNotification['type'], string> = {
+  subscription_due: 'Reminder',
+  subscription_paid: 'Paid',
+  low_balance: 'Low balance',
+  system: 'Update',
 }
 
 const ActionButton = ({
@@ -84,25 +85,27 @@ const ActionButton = ({
   )
 }
 
+function subscriptionIdFrom(item: AppNotification | null) {
+  const id = item?.data?.subscriptionId
+  return typeof id === 'string' ? id : null
+}
+
 const NotificationDetailSheet = forwardRef<
   NotificationDetailSheetHandle,
   NotificationDetailSheetProps
->(({ userId, onActionComplete }, ref) => {
+>(({ userId, onActionComplete, onDeleted }, ref) => {
   const sheetRef = useRef<BottomSheetModal>(null)
   const insets = useSafeAreaInsets()
   const router = useRouter()
-  const snapPoints = useMemo(() => ['48%', '62%'], [])
+  const snapPoints = useMemo(() => ['48%', '68%'], [])
 
   const [notification, setNotification] = useState<AppNotification | null>(null)
   const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [loadingSub, setLoadingSub] = useState(false)
   const [acting, setActing] = useState(false)
 
-  const subscriptionId =
-    notification?.type === 'subscription_due' &&
-    typeof notification.data?.subscriptionId === 'string'
-      ? notification.data.subscriptionId
-      : null
+  const subscriptionId = subscriptionIdFrom(notification)
+  const canActOnSubscription = notification?.type === 'subscription_due' && !!subscriptionId
 
   useImperativeHandle(ref, () => ({
     present: (item: AppNotification) => {
@@ -110,11 +113,7 @@ const NotificationDetailSheet = forwardRef<
       setSubscription(null)
       sheetRef.current?.present()
 
-      const id =
-        item.type === 'subscription_due' && typeof item.data?.subscriptionId === 'string'
-          ? item.data.subscriptionId
-          : null
-
+      const id = subscriptionIdFrom(item)
       if (!userId || !id) return
 
       setLoadingSub(true)
@@ -138,6 +137,11 @@ const NotificationDetailSheet = forwardRef<
     []
   )
 
+  const openRouteAfterDismiss = (href: Parameters<typeof router.push>[0]) => {
+    sheetRef.current?.dismiss()
+    setTimeout(() => router.push(href), 10)
+  }
+
   const handleAction = async (action: 'paid' | 'snooze' | 'skip') => {
     if (!userId || !subscriptionId || acting) return
     setActing(true)
@@ -160,6 +164,22 @@ const NotificationDetailSheet = forwardRef<
     }
   }
 
+  const handleDelete = async () => {
+    if (!userId || !notification || acting) return
+    setActing(true)
+    try {
+      const response = await deleteNotification(userId, notification.id)
+      if (!response.success) throw new Error(response.msg)
+      const id = notification.id
+      sheetRef.current?.dismiss()
+      onDeleted?.(id)
+    } catch (error: any) {
+      showAlert('Unable to delete', error?.message ?? 'Please try again.')
+    } finally {
+      setActing(false)
+    }
+  }
+
   return (
     <BottomSheetModal
       ref={sheetRef}
@@ -176,6 +196,13 @@ const NotificationDetailSheet = forwardRef<
           paddingBottom: Math.max(insets.bottom, 20),
         }}
       >
+        {notification ? (
+          <Typo size={11} fontWeight="600" color="#a3a3a3" className="mb-2">
+            {TYPE_LABEL[notification.type]}
+            {notification.createdAt ? ` · ${formatRelativeTime(notification.createdAt)}` : ''}
+          </Typo>
+        ) : null}
+
         {subscriptionId && subscription ? (
           <>
             <View className="flex-row items-center gap-2">
@@ -183,27 +210,18 @@ const NotificationDetailSheet = forwardRef<
                 {subscription.name}
               </Typo>
               <TouchableOpacity
-                onPress={() => {
-                  const id = subscription.id
-                  sheetRef.current?.dismiss()
-                  setTimeout(() => {
-                    router.push({
-                      pathname: '/(modals)/subscriptionModal',
-                      params: { id },
-                    })
-                  }, 10)
-                }}
+                onPress={() =>
+                  openRouteAfterDismiss({
+                    pathname: '/(modals)/subscriptionModal',
+                    params: { id: subscription.id },
+                  })
+                }
                 hitSlop={10}
                 activeOpacity={0.7}
               >
                 <PencilSimple size={18} color="#a3e635" weight="bold" />
               </TouchableOpacity>
             </View>
-            {notification?.createdAt ? (
-              <Typo size={12} color="#737373" className="mt-1">
-                {formatNotificationTime(notification.createdAt)}
-              </Typo>
-            ) : null}
             <Typo size={14} color="#a3a3a3" className="mt-3">
               Due {formatDue(subscription.nextDueDate)} · ₹
               {Number(subscription.amount).toLocaleString('en-IN')}
@@ -213,17 +231,17 @@ const NotificationDetailSheet = forwardRef<
                 {subscription.notes}
               </Typo>
             ) : null}
+            {notification?.body && notification.type !== 'subscription_due' ? (
+              <Typo size={13} color="#a3a3a3" className="mt-2">
+                {notification.body}
+              </Typo>
+            ) : null}
           </>
         ) : (
           <>
             <Typo size={18} fontWeight="600" color="#f5f5f5">
               {notification?.title || 'Notification'}
             </Typo>
-            {notification?.createdAt ? (
-              <Typo size={12} color="#737373" className="mt-1">
-                {formatNotificationTime(notification.createdAt)}
-              </Typo>
-            ) : null}
             {loadingSub && subscriptionId ? (
               <View className="mt-5 items-center py-2">
                 <ActivityIndicator color="#a3e635" />
@@ -241,7 +259,7 @@ const NotificationDetailSheet = forwardRef<
           </>
         )}
 
-        {subscriptionId ? (
+        {canActOnSubscription ? (
           <View className="mt-5 gap-2.5">
             <ActionButton
               label="Mark paid"
@@ -263,6 +281,44 @@ const NotificationDetailSheet = forwardRef<
             />
           </View>
         ) : null}
+
+        {notification?.type === 'low_balance' ? (
+          <View className="mt-5">
+            <ActionButton
+              label="View accounts"
+              variant="primary"
+              onPress={() => openRouteAfterDismiss('/(tabs)/accounts')}
+            />
+          </View>
+        ) : null}
+
+        {notification?.type === 'subscription_paid' && subscriptionId ? (
+          <View className="mt-5">
+            <ActionButton
+              label="View subscription"
+              variant="neutral"
+              onPress={() =>
+                openRouteAfterDismiss({
+                  pathname: '/(modals)/subscriptionModal',
+                  params: { id: subscriptionId },
+                })
+              }
+            />
+          </View>
+        ) : null}
+
+        <TouchableOpacity
+          onPress={handleDelete}
+          disabled={acting || !notification}
+          activeOpacity={0.85}
+          className="mt-4 flex-row items-center justify-center gap-2 py-3"
+          style={{ opacity: acting ? 0.6 : 1 }}
+        >
+          <Trash size={16} color="#f87171" weight="bold" />
+          <Typo size={13} fontWeight="600" color="#f87171">
+            Delete notification
+          </Typo>
+        </TouchableOpacity>
       </BottomSheetScrollView>
     </BottomSheetModal>
   )

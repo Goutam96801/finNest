@@ -1,3 +1,4 @@
+import AppRefreshControl from '@/components/AppRefreshControl'
 import HomeCardCarousel from '@/components/HomeCardCarousel'
 import ScreenWrapper from '@/components/ScreenWrapper'
 import TransactionList from '@/components/TransactionList'
@@ -24,9 +25,9 @@ import { Account } from '@/lib/types'
 import { TransactionType } from '@/types'
 import { verticalScale } from '@/utils/styling'
 import { useFocusEffect, useRouter } from 'expo-router'
-import { Bell, MagnifyingGlass } from 'phosphor-react-native'
+import { Bell, MagnifyingGlass, Plus } from 'phosphor-react-native'
 import React, { useCallback, useMemo, useRef, useState } from 'react'
-import { TouchableOpacity, View } from 'react-native'
+import { ScrollView, TouchableOpacity, View } from 'react-native'
 import Animated, { FadeInDown } from 'react-native-reanimated'
 
 const Home = () => {
@@ -42,6 +43,7 @@ const Home = () => {
   const [upcoming, setUpcoming] = useState<Subscription[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [loadingTransactions, setLoadingTransactions] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
 
   const firstName = useMemo(() => {
     const fullName =
@@ -92,6 +94,15 @@ const Home = () => {
     }, [loadHomeData])
   )
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      await loadHomeData()
+    } finally {
+      setRefreshing(false)
+    }
+  }, [loadHomeData])
+
   const handleSubscriptionAction = async (
     action: 'paid' | 'snooze' | 'skip',
     subscriptionId: string
@@ -133,7 +144,11 @@ const Home = () => {
             >
               <Bell size={verticalScale(22)} color="#f5f5f5" weight="bold" />
               {unreadCount > 0 ? (
-                <View className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-[#a3e635]" />
+                <View className="absolute -right-0.5 -top-0.5 min-h-[16px] min-w-[16px] items-center justify-center rounded-full bg-[#a3e635] px-1">
+                  <Typo size={10} fontWeight="700" color="#171717">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </Typo>
+                </View>
               ) : null}
             </TouchableOpacity>
 
@@ -148,47 +163,62 @@ const Home = () => {
           </View>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(50).springify().damping(40).stiffness(200)}>
-          <HomeCardCarousel
-            totalBalance={totalBalance}
-            income={income}
-            expense={expense}
-            accounts={accounts}
-            accountTotals={accountTotals}
-          />
-        </Animated.View>
+        <View className="relative flex-1">
+          <ScrollView
+            className="flex-1"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ flexGrow: 1, paddingBottom: 88 }}
+            refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          >
+            <Animated.View entering={FadeInDown.delay(50).springify().damping(40).stiffness(200)}>
+              <HomeCardCarousel
+                totalBalance={totalBalance}
+                income={income}
+                expense={expense}
+                accounts={accounts}
+                accountTotals={accountTotals}
+              />
+            </Animated.View>
 
-        <Animated.View
-          entering={FadeInDown.delay(100).springify().damping(40).stiffness(200)}
-          style={{ flexGrow: 0, flexShrink: 0 }}
-        >
-          <UpcomingSubscriptions
-            items={upcoming}
-            onViewAllPress={() => router.push('/subscriptions')}
-            onAddPress={() => router.push('/(modals)/subscriptionModal')}
-            onPaid={(id) => handleSubscriptionAction('paid', id)}
-            onSnooze={(id) => handleSubscriptionAction('snooze', id)}
-            onSkip={(id) => handleSubscriptionAction('skip', id)}
-          />
-        </Animated.View>
+            <Animated.View
+              entering={FadeInDown.delay(100).springify().damping(40).stiffness(200)}
+              style={{ flexGrow: 0, flexShrink: 0 }}
+            >
+              <UpcomingSubscriptions
+                items={upcoming}
+                onViewAllPress={() => router.push('/subscriptions')}
+                onAddPress={() => router.push('/(modals)/subscriptionModal')}
+                onPaid={(id) => handleSubscriptionAction('paid', id)}
+                onSnooze={(id) => handleSubscriptionAction('snooze', id)}
+                onSkip={(id) => handleSubscriptionAction('skip', id)}
+              />
+            </Animated.View>
 
-        <Animated.View
-          entering={FadeInDown.delay(150).springify().damping(40).stiffness(200)}
-          className="flex-1"
-        >
-          <TransactionList
-            data={transactions}
-            loading={loadingTransactions && transactions.length === 0}
-            onAddPress={() => router.push('/(modals)/transactionModal')}
-            onViewAllPress={() => router.push('/transactions')}
-            onItemPress={(item) =>
-              router.push({
-                pathname: '/(modals)/transactionModal',
-                params: { id: item.id },
-              })
-            }
-          />
-        </Animated.View>
+            <Animated.View entering={FadeInDown.delay(150).springify().damping(40).stiffness(200)}>
+              <TransactionList
+                data={transactions}
+                loading={loadingTransactions && transactions.length === 0}
+                scrollEnabled={false}
+                onViewAllPress={() => router.push('/transactions')}
+                onItemPress={(item) =>
+                  router.push({
+                    pathname: '/(modals)/transactionModal',
+                    params: { id: item.id },
+                  })
+                }
+              />
+            </Animated.View>
+          </ScrollView>
+
+          <TouchableOpacity
+            onPress={() => router.push('/(modals)/transactionModal')}
+            activeOpacity={0.85}
+            className="absolute bottom-10 right-1 h-16 w-16 items-center justify-center rounded-full bg-[#a3e635]"
+            style={{ elevation: 4 }}
+          >
+            <Plus size={verticalScale(30)} color="#000" weight="bold" />
+          </TouchableOpacity>
+        </View>
       </View>
     </ScreenWrapper>
   )

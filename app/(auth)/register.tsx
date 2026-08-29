@@ -54,7 +54,7 @@ const Register = () => {
                 <BackButton iconSize={28} />
 
                 <View className='gap-[5px] mt-5'>
-                    <Typo size={30} fontWeight={"800"}>Let's</Typo>
+                    <Typo size={30} fontWeight={"800"}>Let&apos;s</Typo>
                     <Typo size={30} fontWeight={"800"}>Get Started</Typo>
                 </View>
                 <View className='gap-5'>

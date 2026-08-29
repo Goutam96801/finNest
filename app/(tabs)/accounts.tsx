@@ -1,4 +1,5 @@
 import AccountListItem from '@/components/AccountListItem'
+import AppRefreshControl from '@/components/AppRefreshControl'
 import EmptyState from '@/components/EmptyState'
 import Loading from '@/components/Loading'
 import ScreenWrapper from '@/components/ScreenWrapper'
@@ -19,35 +20,37 @@ const Accounts = () => {
   const hasLoadedOnce = useRef(false)
   const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const loadAccounts = useCallback(async () => {
+    if (!user?.id) return
+
+    if (!hasLoadedOnce.current) setLoading(true)
+    try {
+      const data = await getAccounts(user.id)
+      setAccounts(data || [])
+      hasLoadedOnce.current = true
+    } catch (error) {
+      console.log('Failed to load accounts', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [user?.id])
 
   useFocusEffect(
     useCallback(() => {
-      let active = true
-
-      const fetchAccounts = async () => {
-        if (!user?.id) return
-
-        if (!hasLoadedOnce.current) setLoading(true)
-        try {
-          const data = await getAccounts(user.id)
-          if (active) {
-            setAccounts(data || [])
-            hasLoadedOnce.current = true
-          }
-        } catch (error) {
-          console.log('Failed to load accounts', error)
-        } finally {
-          if (active) setLoading(false)
-        }
-      }
-
-      fetchAccounts()
-
-      return () => {
-        active = false
-      }
-    }, [user?.id])
+      loadAccounts()
+    }, [loadAccounts])
   )
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      await loadAccounts()
+    } finally {
+      setRefreshing(false)
+    }
+  }, [loadAccounts])
 
   const totalBalance = accounts.reduce((sum, account) => sum + Number(account.balance ?? 0), 0)
 
@@ -91,6 +94,7 @@ const Accounts = () => {
               data={accounts}
               keyExtractor={(item) => item.id ?? `${item.name}-${item.createdAt}`}
               showsVerticalScrollIndicator={false}
+              refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
               contentContainerStyle={{ gap: 12, paddingBottom: 20, flexGrow: 1 }}
               renderItem={({ item, index }) => (
                 <Animated.View

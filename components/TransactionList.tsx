@@ -1,3 +1,4 @@
+import AppRefreshControl from '@/components/AppRefreshControl'
 import EmptyState from '@/components/EmptyState'
 import Loading from '@/components/Loading'
 import Typo from '@/components/Typo'
@@ -17,6 +18,9 @@ type TransactionListProps = TransactionListType & {
   showViewAll?: boolean
   nestedScrollEnabled?: boolean
   ListHeaderComponent?: React.ReactElement | null
+  refreshing?: boolean
+  onRefresh?: () => void
+  scrollEnabled?: boolean
 }
 
 export const formatTransactionDate = (value: TransactionType['date']) => {
@@ -108,9 +112,16 @@ const TransactionList = ({
   onItemPress,
   onViewAllPress,
   showViewAll = true,
+  refreshing = false,
+  onRefresh,
+  scrollEnabled = true,
 }: TransactionListProps) => {
+  const rows = data.map((item, index) => (
+    <TransactionRow key={item.id ?? `${item.accountId}-${item.date}`} item={item} index={index} onPress={onItemPress} />
+  ))
+
   return (
-    <View className="mt-6 flex-1">
+    <View className={scrollEnabled ? 'mt-6 flex-1' : 'mt-6'}>
       <View className="mb-3 flex-row items-center justify-between">
         <Typo size={18} fontWeight="600" color="#f5f5f5">
           {title}
@@ -124,14 +135,19 @@ const TransactionList = ({
         ) : null}
       </View>
 
-      <View className="flex-1 relative">
+      <View className={scrollEnabled ? 'relative flex-1' : 'relative'}>
         {loading ? (
           <Loading />
-        ) : (
+        ) : scrollEnabled ? (
           <FlatList
             data={data}
             keyExtractor={(item) => item.id ?? `${item.accountId}-${item.date}`}
             showsVerticalScrollIndicator={false}
+            refreshControl={
+              onRefresh ? (
+                <AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+              ) : undefined
+            }
             contentContainerStyle={{
               gap: 12,
               paddingBottom: 88,
@@ -142,6 +158,10 @@ const TransactionList = ({
               <TransactionRow item={item} index={index} onPress={onItemPress} />
             )}
           />
+        ) : data.length === 0 ? (
+          <EmptyState message={emptyListMessage} />
+        ) : (
+          <View className="gap-3">{rows}</View>
         )}
 
         {onAddPress ? (

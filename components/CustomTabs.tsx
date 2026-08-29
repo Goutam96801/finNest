@@ -4,16 +4,28 @@ import { verticalScale } from '@/utils/styling'
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs'
 import { Image } from 'expo-image'
 import * as Icons from 'phosphor-react-native'
-import React from 'react'
-import { TouchableOpacity, View } from 'react-native'
+import React, { useEffect, useState } from 'react'
+import { Keyboard, Platform, TouchableOpacity, View } from 'react-native'
 
 const AVATAR_SIZE = verticalScale(30)
 
 export default function CustomTabs({ state, descriptors, navigation }: BottomTabBarProps) {
   const { user } = useAuth()
+  const [keyboardVisible, setKeyboardVisible] = useState(false)
   const avatarSource = getProfileImage(
     user?.user_metadata?.avatar_url || user?.user_metadata?.avatar
   )
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow'
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide'
+    const show = Keyboard.addListener(showEvent, () => setKeyboardVisible(true))
+    const hide = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false))
+    return () => {
+      show.remove()
+      hide.remove()
+    }
+  }, [])
 
   const tabbarIcons: Record<string, (isFocused: boolean) => React.ReactNode> = {
     index: (isFocused) => (
@@ -25,6 +37,13 @@ export default function CustomTabs({ state, descriptors, navigation }: BottomTab
     ),
     statistics: (isFocused) => (
       <Icons.ChartBar
+        size={AVATAR_SIZE}
+        weight={isFocused ? 'fill' : 'regular'}
+        color={isFocused ? '#a3e635' : '#a3a3a3'}
+      />
+    ),
+    fynn: (isFocused) => (
+      <Icons.Heart
         size={AVATAR_SIZE}
         weight={isFocused ? 'fill' : 'regular'}
         color={isFocused ? '#a3e635' : '#a3a3a3'}
@@ -60,7 +79,14 @@ export default function CustomTabs({ state, descriptors, navigation }: BottomTab
   }
 
   return (
-    <View className="h-[60px] w-full flex-row items-center justify-around border-t-[1px] border-t-[#404040] bg-[#262626]">
+    <View
+      className="w-full flex-row items-center justify-around border-t-[#404040] bg-[#262626]"
+      style={{
+        height: keyboardVisible ? 0 : 60,
+        overflow: 'hidden',
+        borderTopWidth: keyboardVisible ? 0 : 1,
+      }}
+    >
       {state.routes.map((route, index) => {
         const { options } = descriptors[route.key]
         const isFocused = state.index === index

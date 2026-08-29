@@ -288,6 +288,8 @@ export async function resyncSubscriptionRemindersForUser(userId: string) {
     if (settings.subscriptionRemindersEnabled) {
       await reconcileDueInAppNotifications(userId, subscriptions)
     }
+    const { reconcileLowBalanceAlerts } = await import('@/lib/services/lowBalanceAlerts')
+    await reconcileLowBalanceAlerts(userId)
   } catch (error) {
     console.log('Failed to resync subscription reminders', error)
   }
