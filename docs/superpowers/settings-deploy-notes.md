@@ -97,3 +97,5 @@ Webhook URL (Razorpay dashboard, events `payment.captured`, `payment.failed`, `o
 `https://<project-ref>.supabase.co/functions/v1/fynn-razorpay-webhook`
 
 Client: `EXPO_PUBLIC_RAZORPAY_KEY_ID` only (test or live key id). Native Checkout needs a development build: `npx expo run:android`. Expo Go cannot open Razorpay.
+
+Stale unpaid checkouts (`fynn_purchases.status = created` older than 30 minutes) are deleted by pg_cron job `cleanup-stale-fynn-purchases` (every 5 minutes). Migration: `20260829140000_cleanup_stale_fynn_purchases.sql`.
