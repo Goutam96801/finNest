@@ -1,429 +1,304 @@
 import { getAuthedUserClient } from '../_shared/auth.ts'
 import { corsHeaders, json } from '../_shared/cors.ts'
-import { getLlmProvider } from '../_shared/llm/provider.ts'
-import type { ChatMessage, LlmProvider } from '../_shared/llm/types.ts'
-import { TOOL_DEFS } from '../_shared/tools/catalog.ts'
-import { executeTool } from '../_shared/tools/executor.ts'
+import { TOOL_DEFINITIONS, buildSystemPrompt, executeReadTool } from '../_shared/ai-tools.ts'
 
-const MAX_TOOL_ITERATIONS = 6
-const RATE_LIMIT_WINDOW_MS = 60 * 1000
-const MAX_REQUESTS_PER_USER_PER_WINDOW = 20
-const requestTimesByUser = new Map<string, number[]>()
+const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+const MODEL = Deno.env.get('OPENROUTER_MODEL') || 'openrouter/free'
+const MAX_TOOL_ROUNDS = 6
+const HISTORY_LIMIT = 20 // prior messages to include as context
+const PROPOSAL_TTL_MS = 5 * 60 * 1000
 
-function isClockSkewError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false
-  const message = error.message.toLowerCase()
-  return message.includes('jwt issued at future') || message.includes('pgrst303')
-}
+type ChatMsg = { role: string; content: string | null; tool_calls?: unknown; tool_call_id?: string }
 
-function isPersistSkippable(error: unknown): boolean {
-  return isClockSkewError(error)
-}
-
-function isAuthError(error: unknown): boolean {
-  return error instanceof Error && (error.message === 'Missing authorization' || error.message === 'Unauthorized')
-}
-
-function sanitizeErrorMessage(error: unknown): string | null {
-  if (!(error instanceof Error) || !error.message.trim()) return null
-  // Never echo secrets if a provider leak somehow includes them.
-  return error.message
-    .replace(/AIza[0-9A-Za-z_-]{10,}/g, '[redacted]')
-    .replace(/sk-[0-9A-Za-z_-]{10,}/g, '[redacted]')
-    .slice(0, 300)
-}
-
-function logChatRequest(input: {
-  userId: string | null
-  toolNames: string[]
-  latencyMs: number
-  provider: string | null
-  errorCode: string | null
-  stage: string | null
-  errorMessage: string | null
-}) {
-  console.log(JSON.stringify({
-    event: 'fynn_chat_request',
-    user_id: input.userId,
-    tool_names: input.toolNames,
-    latency_ms: input.latencyMs,
-    provider: input.provider,
-    error_code: input.errorCode,
-    stage: input.stage,
-    error_message: input.errorMessage,
-  }))
-}
-
-function isRateLimited(userId: string, now = Date.now()): boolean {
-  const requestTimes = (requestTimesByUser.get(userId) ?? [])
-    .filter((requestTime) => requestTime > now - RATE_LIMIT_WINDOW_MS)
-
-  if (requestTimes.length >= MAX_REQUESTS_PER_USER_PER_WINDOW) {
-    requestTimesByUser.set(userId, requestTimes)
-    return true
+function statusForTool(name: string): string {
+  switch (name) {
+    case 'get_transactions':
+      return 'Looking up your transactions…'
+    case 'get_summary':
+      return 'Crunching the numbers…'
+    case 'get_accounts':
+      return 'Checking your accounts…'
+    case 'get_subscriptions':
+      return 'Checking your subscriptions…'
+    case 'get_categories':
+      return 'Checking your categories…'
+    case 'render_chart':
+      return 'Building your chart…'
+    default:
+      return 'Working on it…'
   }
-
-  requestTimes.push(now)
-  requestTimesByUser.set(userId, requestTimes)
-  return false
 }
 
-type ToolResult = { ok: true; result: unknown } | { ok: false; error: string }
+// Parses an OpenRouter/OpenAI-compatible SSE stream, yielding each decoded JSON chunk.
+async function* parseSse(body: ReadableStream<Uint8Array>) {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
 
-type ProposalResult = {
-  proposal_id: string
-  summary: string
-  preview: unknown
-}
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
 
-type ChatPersistence = {
-  createChat: (userClient: any, userId: string, title: string) => Promise<string>
-  requireChat: (userClient: any, chatId: string) => Promise<void>
-  listMessages: (userClient: any, chatId: string) => Promise<ChatMessage[]>
-  saveMessage: (userClient: any, input: {
-    chatId: string
-    userId: string
-    role: 'user' | 'assistant'
-    content: string
-    proposalMetadata?: unknown
-  }) => Promise<string>
-}
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
 
-type FynnChatDependencies = {
-  getAuthedUserClient: (req: Request) => Promise<{
-    user: { id: string }
-    userClient: any
-  }>
-  getLlmProvider: () => LlmProvider
-  executeTool: (input: {
-    name: string
-    args: Record<string, unknown>
-    userId: string
-    userClient: any
-  }) => Promise<ToolResult>
-  persistence?: ChatPersistence
-}
-
-const systemPrompt = `You are Fynn, a helpful personal finance assistant. Use the available tools to answer questions about this user's money data. Never invent balances, transactions, subscriptions, or other financial data. Only use the listed tools, and clearly say when the data is unavailable.`
-
-const persistence: ChatPersistence = {
-  async createChat(userClient, userId, title) {
-    const { data, error } = await userClient
-      .from('fynn_chats')
-      .insert({ user_id: userId, title })
-      .select('id')
-      .single()
-    if (error || !data?.id) throw new Error(error?.message || 'Unable to create chat')
-    return data.id
-  },
-  async requireChat(userClient, chatId) {
-    const { data, error } = await userClient
-      .from('fynn_chats')
-      .select('id')
-      .eq('id', chatId)
-      .single()
-    if (error || !data) throw new Error(error?.message || 'Chat not found')
-  },
-  async listMessages(userClient, chatId) {
-    const { data, error } = await userClient
-      .from('fynn_messages')
-      .select('role, content')
-      .eq('chat_id', chatId)
-      .order('created_at', { ascending: true })
-    if (error) throw new Error(error.message)
-    return (data || []).flatMap((message: { role: unknown; content: unknown }): ChatMessage[] => (
-      (message.role === 'user' || message.role === 'assistant') && typeof message.content === 'string'
-        ? [{ role: message.role, content: message.content }]
-        : []
-    ))
-  },
-  async saveMessage(userClient, { chatId, userId, role, content, proposalMetadata }) {
-    const { data, error } = await userClient.from('fynn_messages').insert({
-      chat_id: chatId,
-      user_id: userId,
-      role,
-      content,
-      ...(proposalMetadata === undefined ? {} : { proposal_metadata: proposalMetadata }),
-    }).select('id').single()
-    if (error || !data?.id) throw new Error(error?.message || 'Unable to save message')
-    return data.id
-  },
-}
-
-function proposalResult(value: unknown): ProposalResult | null {
-  if (!value || typeof value !== 'object') return null
-  const result = value as Record<string, unknown>
-  return typeof result.proposal_id === 'string'
-    && typeof result.summary === 'string'
-    && 'preview' in result
-    ? result as ProposalResult
-    : null
-}
-
-function parseMessages(
-  history: unknown,
-  message: unknown
-): ChatMessage[] | null {
-  if (typeof message !== 'string' || !message.trim()) return null
-
-  const priorMessages = Array.isArray(history)
-    ? history.flatMap((item): ChatMessage[] => {
-        if (
-          !item ||
-          typeof item !== 'object' ||
-          !('role' in item) ||
-          !('content' in item) ||
-          (item.role !== 'user' && item.role !== 'assistant') ||
-          typeof item.content !== 'string'
-        ) {
-          return []
-        }
-
-        return [{ role: item.role, content: item.content }]
-      })
-    : []
-
-  return [
-    { role: 'system', content: systemPrompt },
-    ...priorMessages,
-    { role: 'user', content: message.trim() },
-  ]
-}
-
-export function createFynnChatHandler(
-  dependencies: FynnChatDependencies = {
-    getAuthedUserClient,
-    getLlmProvider,
-    executeTool,
-    persistence,
-  }
-) {
-  const persistenceLayer = dependencies.persistence ?? persistence
-
-  return async (req: Request): Promise<Response> => {
-    if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
-    if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
-
-    const startedAt = Date.now()
-    let userId: string | null = null
-    let providerName: string | null = null
-    let stage: string | null = 'auth'
-    let errorMessage: string | null = null
-    const toolNames = new Set<string>()
-    let errorCode: string | null = null
-
-    try {
-      const { user, userClient } = await dependencies.getAuthedUserClient(req)
-      userId = user.id
-      stage = 'validate'
-      const body = await req.json().catch(() => ({}))
-      if (typeof body.message !== 'string' || !body.message.trim()) {
-        errorCode = 'VALIDATION_ERROR'
-        errorMessage = 'Message is required'
-        return json({ error: 'Message is required' }, 400)
-      }
-      if (isRateLimited(user.id)) {
-        errorCode = 'RATE_LIMITED'
-        errorMessage = 'Too many Fynn chat requests. Try again later.'
-        return json({ error: 'Too many Fynn chat requests. Try again later.' }, 429)
-      }
-      stage = 'persist'
-      const requestedChatId = typeof body.chat_id === 'string' && body.chat_id.trim()
-        ? body.chat_id.trim()
-        : null
-      let chatId: string
-      let history: ChatMessage[] = []
-      let userMessageId: string
-      let ephemeral = false
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('data:')) continue
+      const data = trimmed.slice(5).trim()
+      if (data === '[DONE]') return
       try {
-        chatId = requestedChatId
-          ? (await persistenceLayer.requireChat(userClient, requestedChatId), requestedChatId)
-          : await persistenceLayer.createChat(userClient, user.id, String(body.message || '').trim())
-        history = requestedChatId
-          ? await persistenceLayer.listMessages(userClient, chatId)
-          : []
-        const parsed = parseMessages(history, body.message)
-        if (!parsed) {
-          errorCode = 'VALIDATION_ERROR'
-          errorMessage = 'Message is required'
-          return json({ error: 'Message is required' }, 400)
-        }
-        userMessageId = await persistenceLayer.saveMessage(userClient, {
-          chatId,
-          userId: user.id,
-          role: 'user',
-          content: parsed.at(-1)!.content,
-        })
-        history = parsed
-      } catch (persistError) {
-        if (!isPersistSkippable(persistError) || requestedChatId) throw persistError
-        // Device clock skew can block JWT inserts; still answer this turn without DB history.
-        ephemeral = true
-        chatId = `ephemeral-${crypto.randomUUID()}`
-        userMessageId = `ephemeral-user-${crypto.randomUUID()}`
-        const parsed = parseMessages([], body.message)
-        if (!parsed) {
-          errorCode = 'VALIDATION_ERROR'
-          errorMessage = 'Message is required'
-          return json({ error: 'Message is required' }, 400)
-        }
-        history = parsed
-        errorMessage = sanitizeErrorMessage(persistError)
+        yield JSON.parse(data)
+      } catch {
+        // ignore malformed keep-alive fragments
       }
-      const messages = history
-      if (!messages) {
-        errorCode = 'VALIDATION_ERROR'
-        errorMessage = 'Message is required'
-        return json({ error: 'Message is required' }, 400)
-      }
-
-      stage = 'provider'
-      providerName = dependencies.getLlmProvider === getLlmProvider
-        ? (Deno.env.get('LLM_PROVIDER') ?? 'gemini').toLowerCase()
-        : 'injected'
-      const provider = dependencies.getLlmProvider()
-      stage = 'llm'
-      for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration += 1) {
-        const completion = await provider.complete({ messages, tools: TOOL_DEFS })
-        if (completion.toolCalls.length === 0) {
-          if (!completion.assistantText?.trim()) {
-            throw new Error('Unable to complete chat response')
-          }
-          stage = 'persist_assistant'
-          let messageId: string
-          if (ephemeral) {
-            messageId = `ephemeral-assistant-${crypto.randomUUID()}`
-          } else {
-            try {
-              messageId = await persistenceLayer.saveMessage(userClient, {
-                chatId,
-                userId: user.id,
-                role: 'assistant',
-                content: completion.assistantText,
-              })
-            } catch (persistError) {
-              if (!isPersistSkippable(persistError)) throw persistError
-              ephemeral = true
-              messageId = `ephemeral-assistant-${crypto.randomUUID()}`
-              errorMessage = sanitizeErrorMessage(persistError)
-            }
-          }
-          return json({
-            type: 'message',
-            text: completion.assistantText,
-            chatId,
-            userMessageId,
-            messageId,
-            ...(ephemeral
-              ? {
-                warning:
-                  'Chat was not saved because your device clock appears ahead of the server. Enable automatic date/time, then sign out and back in.',
-              }
-              : {}),
-          })
-        }
-
-        stage = 'tools'
-        // Gemini parallel tools: one model turn with all functionCalls (thoughtSignature
-        // on the first), then one user turn with all functionResponses.
-        for (const toolCall of completion.toolCalls) {
-          toolNames.add(toolCall.name)
-          messages.push({
-            role: 'assistant',
-            content: JSON.stringify(toolCall.arguments),
-            toolCallId: toolCall.id,
-            name: toolCall.name,
-            ...(toolCall.thoughtSignature
-              ? { thoughtSignature: toolCall.thoughtSignature }
-              : {}),
-          })
-        }
-
-        for (const toolCall of completion.toolCalls) {
-          const result = await dependencies.executeTool({
-            name: toolCall.name,
-            args: toolCall.arguments,
-            userId: user.id,
-            userClient,
-          })
-          if (result.ok) {
-            const proposal = proposalResult(result.result)
-            if (proposal) {
-              const text = 'Please confirm this change.'
-              let messageId: string
-              if (ephemeral) {
-                messageId = `ephemeral-assistant-${crypto.randomUUID()}`
-              } else {
-                try {
-                  messageId = await persistenceLayer.saveMessage(userClient, {
-                    chatId,
-                    userId: user.id,
-                    role: 'assistant',
-                    content: text,
-                    proposalMetadata: {
-                      id: proposal.proposal_id,
-                      summary: proposal.summary,
-                      preview: proposal.preview,
-                      status: 'pending',
-                    },
-                  })
-                } catch (persistError) {
-                  if (!isPersistSkippable(persistError)) throw persistError
-                  ephemeral = true
-                  messageId = `ephemeral-assistant-${crypto.randomUUID()}`
-                  errorMessage = sanitizeErrorMessage(persistError)
-                }
-              }
-              return json({
-                type: 'proposal',
-                proposalId: proposal.proposal_id,
-                summary: proposal.summary,
-                preview: proposal.preview,
-                text,
-                chatId,
-                userMessageId,
-                messageId,
-                ...(ephemeral
-                  ? {
-                    warning:
-                      'Chat was not saved because your device clock appears ahead of the server. Enable automatic date/time, then sign out and back in.',
-                  }
-                  : {}),
-              })
-            }
-          }
-          messages.push({
-            role: 'tool',
-            content: JSON.stringify(result),
-            toolCallId: toolCall.id,
-            name: toolCall.name,
-          })
-        }
-      }
-
-      throw new Error('Unable to complete chat response')
-    } catch (error) {
-      const unauthorized = isAuthError(error)
-      errorCode = unauthorized ? 'AUTH_FAILED' : 'REQUEST_FAILED'
-      errorMessage = sanitizeErrorMessage(error) ?? 'Fynn chat failed'
-      return json(
-        { error: errorMessage },
-        unauthorized ? 401 : 400
-      )
-    } finally {
-      logChatRequest({
-        userId,
-        toolNames: [...toolNames],
-        latencyMs: Date.now() - startedAt,
-        provider: providerName,
-        errorCode,
-        stage,
-        errorMessage,
-      })
     }
   }
 }
 
-if (import.meta.main) {
-  Deno.serve(createFynnChatHandler())
-}
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
+
+  const openrouterKey = Deno.env.get('OPENROUTER_API_KEY')
+  if (!openrouterKey) return json({ error: 'Server not configured' }, 500)
+
+  let ctx: Awaited<ReturnType<typeof getAuthedUserClient>>
+  try {
+    ctx = await getAuthedUserClient(req)
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : 'Unauthorized' }, 401)
+  }
+  const { user, userClient } = ctx
+
+  const body = await req.json().catch(() => ({}))
+  const userMessage = String(body.message ?? '').trim()
+  if (!userMessage) return json({ error: 'message is required' }, 400)
+
+  const { data: profile } = await userClient.from('profiles').select('currency, timezone').eq('id', user.id).single()
+
+  // Get or create the chat.
+  let chatId = body.chat_id as string | undefined
+  if (!chatId) {
+    const { data, error } = await userClient
+      .from('fynn_chats')
+      .insert({ user_id: user.id, title: userMessage.slice(0, 60) })
+      .select('id')
+      .single()
+    if (error) return json({ error: error.message }, 500)
+    chatId = data.id
+  }
+
+  // Prior turns for context.
+  const { data: historyRows } = await userClient
+    .from('fynn_messages')
+    .select('role, content')
+    .eq('chat_id', chatId)
+    .order('created_at', { ascending: false })
+    .limit(HISTORY_LIMIT)
+  const history = (historyRows ?? []).reverse()
+
+  const { data: userMsgRow, error: userMsgError } = await userClient
+    .from('fynn_messages')
+    .insert({ chat_id: chatId, user_id: user.id, role: 'user', content: userMessage })
+    .select('id')
+    .single()
+  if (userMsgError) return json({ error: userMsgError.message }, 500)
+  const userMessageId = userMsgRow.id
+
+  const today = new Date().toISOString().slice(0, 10)
+  const systemPrompt = buildSystemPrompt({
+    currency: profile?.currency || 'INR',
+    timezone: profile?.timezone || 'Asia/Kolkata',
+    today,
+  })
+
+  const messages: ChatMsg[] = [
+    { role: 'system', content: systemPrompt },
+    ...history.map((h) => ({ role: h.role, content: h.content })),
+    { role: 'user', content: userMessage },
+  ]
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder()
+      const send = (event: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+      }
+
+      let finalText = ''
+      let proposalMetadata: Record<string, unknown> | null = null
+      let chartMetadata: Record<string, unknown> | null = null
+      let stopped = false
+
+      try {
+        for (let round = 0; round < MAX_TOOL_ROUNDS && !stopped; round++) {
+          const resp = await fetch(OPENROUTER_URL, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${openrouterKey}`,
+              'Content-Type': 'application/json',
+              'HTTP-Referer': 'https://finnest.app',
+              'X-Title': 'finNest AI Chat',
+            },
+            body: JSON.stringify({
+              model: MODEL,
+              messages,
+              tools: TOOL_DEFINITIONS,
+              tool_choice: 'auto',
+              stream: true,
+              reasoning: { enabled: true },
+            }),
+          })
+
+          if (!resp.ok || !resp.body) {
+            const errText = await resp.text().catch(() => '')
+            send({ type: 'error', message: `AI provider error (${resp.status}): ${errText.slice(0, 300)}` })
+            stopped = true
+            break
+          }
+
+          let roundContent = ''
+          const toolCallAcc = new Map<number, { id: string; name: string; args: string }>()
+          let finishReason: string | null = null
+
+          for await (const chunk of parseSse(resp.body)) {
+            const choice = chunk.choices?.[0]
+            if (!choice) continue
+            const delta = choice.delta ?? {}
+
+            if (delta.reasoning) send({ type: 'thinking', text: delta.reasoning })
+            if (delta.content) {
+              roundContent += delta.content
+              send({ type: 'token', text: delta.content })
+            }
+            if (Array.isArray(delta.tool_calls)) {
+              for (const tc of delta.tool_calls) {
+                const idx = tc.index ?? 0
+                const existing = toolCallAcc.get(idx) ?? { id: '', name: '', args: '' }
+                if (tc.id) existing.id = tc.id
+                if (tc.function?.name) existing.name = tc.function.name
+                if (tc.function?.arguments) existing.args += tc.function.arguments
+                toolCallAcc.set(idx, existing)
+              }
+            }
+            if (choice.finish_reason) finishReason = choice.finish_reason
+          }
+
+          finalText += roundContent
+
+          if (finishReason !== 'tool_calls' || toolCallAcc.size === 0) {
+            stopped = true
+            break
+          }
+
+          const toolCalls = Array.from(toolCallAcc.values())
+          messages.push({
+            role: 'assistant',
+            content: roundContent || null,
+            tool_calls: toolCalls.map((tc) => ({
+              id: tc.id,
+              type: 'function',
+              function: { name: tc.name, arguments: tc.args },
+            })),
+          })
+
+          for (const tc of toolCalls) {
+            let args: Record<string, unknown> = {}
+            try {
+              args = JSON.parse(tc.args || '{}')
+            } catch {
+              /* leave empty */
+            }
+
+            if (tc.name === 'propose_transaction_write') {
+              const { data: proposalRow, error: proposalError } = await userClient
+                .from('fynn_proposals')
+                .insert({
+                  user_id: user.id,
+                  tool_name: tc.name,
+                  payload: args,
+                  summary: String(args.summary ?? 'Confirm this change?'),
+                  status: 'pending',
+                  expires_at: new Date(Date.now() + PROPOSAL_TTL_MS).toISOString(),
+                })
+                .select('id, summary')
+                .single()
+
+              if (proposalError) {
+                send({ type: 'error', message: proposalError.message })
+              } else {
+                proposalMetadata = {
+                  id: proposalRow.id,
+                  summary: proposalRow.summary,
+                  preview: args,
+                  status: 'pending',
+                }
+                send({
+                  type: 'proposal',
+                  proposalId: proposalRow.id,
+                  summary: proposalRow.summary,
+                  preview: args,
+                })
+              }
+              messages.push({
+                role: 'tool',
+                tool_call_id: tc.id,
+                content: JSON.stringify({ status: 'awaiting_user_confirmation' }),
+              })
+              stopped = true // wait for the user to confirm/reject before continuing
+              continue
+            }
+
+            if (tc.name === 'render_chart') {
+              chartMetadata = args
+              send({ type: 'chart', chart: args })
+              messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify({ status: 'rendered' }) })
+              continue
+            }
+
+            send({ type: 'thinking', text: statusForTool(tc.name) })
+            try {
+              const result = await executeReadTool(userClient, tc.name, args)
+              messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) })
+            } catch (e) {
+              messages.push({
+                role: 'tool',
+                tool_call_id: tc.id,
+                content: JSON.stringify({ error: e instanceof Error ? e.message : 'Tool failed' }),
+              })
+            }
+          }
+        }
+      } catch (e) {
+        send({ type: 'error', message: e instanceof Error ? e.message : 'Unexpected error' })
+      }
+
+      const { data: assistantMsgRow } = await userClient
+        .from('fynn_messages')
+        .insert({
+          chat_id: chatId,
+          user_id: user.id,
+          role: 'assistant',
+          content: finalText,
+          proposal_metadata: proposalMetadata,
+          chart_metadata: chartMetadata,
+        })
+        .select('id')
+        .single()
+
+      send({ type: 'done', chatId, userMessageId, messageId: assistantMsgRow?.id ?? null })
+      controller.close()
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      ...corsHeaders,
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  })
+})

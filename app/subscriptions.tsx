@@ -1,4 +1,5 @@
 import BackButton from '@/components/BackButton'
+import AppRefreshControl from '@/components/AppRefreshControl'
 import EmptyState from '@/components/EmptyState'
 import Header from '@/components/Header'
 import Loading from '@/components/Loading'
@@ -31,6 +32,7 @@ const SubscriptionsScreen = () => {
   const hasLoadedOnce = useRef(false)
   const [items, setItems] = useState<Subscription[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
 
   const load = useCallback(async () => {
     if (!user?.id) return
@@ -51,6 +53,15 @@ const SubscriptionsScreen = () => {
       load()
     }, [load])
   )
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      await load()
+    } finally {
+      setRefreshing(false)
+    }
+  }, [load])
 
   const handleAction = async (action: 'paid' | 'snooze' | 'skip', subscriptionId: string) => {
     if (!user?.id) return
@@ -124,6 +135,7 @@ const SubscriptionsScreen = () => {
             data={items}
             keyExtractor={(item) => item.id}
             showsVerticalScrollIndicator={false}
+            refreshControl={<AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
             contentContainerStyle={{ gap: 12, paddingBottom: 32, flexGrow: 1 }}
             ListEmptyComponent={<EmptyState message="No subscriptions yet" />}
             renderItem={({ item, index }) => (
