@@ -37,6 +37,14 @@ Deno.serve(async (req) => {
     return json({ error: 'This confirmation has expired — please ask again.' }, 400)
   }
 
+  if (action === 'accept') {
+    const { data: status, error: statusError } = await userClient.rpc('get_fynn_pro_status')
+    if (statusError) return json({ error: statusError.message }, 500)
+    const statusRow = typeof status === 'string' ? JSON.parse(status) : status
+    const entitled = (statusRow as { subscribed?: boolean } | null)?.subscribed === true
+    if (!entitled) return json({ error: 'subscription_required', code: 'SUBSCRIPTION_REQUIRED' }, 402)
+  }
+
   if (action === 'reject') {
     await userClient
       .from('fynn_proposals')

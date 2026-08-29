@@ -23,3 +23,10 @@ export async function getAuthedUserClient(req: Request): Promise<{
 
   return { user, userClient, authHeader }
 }
+
+export function getServiceClient(): SupabaseClient {
+  const url = Deno.env.get('SUPABASE_URL')
+  const service = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  if (!url || !service) throw new Error('Server not configured')
+  return createClient(url, service)
+}

@@ -68,7 +68,21 @@ export function sendFynnMessageStream(
 
       if (!response.ok || !response.body) {
         const text = await response.text().catch(() => '')
-        handlers.onError?.(text || `Request failed (${response.status})`)
+        let parsed: { code?: string; error?: string } | null = null
+        try {
+          parsed = JSON.parse(text)
+        } catch {
+          parsed = null
+        }
+        if (parsed?.code === 'SUBSCRIPTION_REQUIRED') {
+          handlers.onError?.('Subscribe to Fynn Pro to chat.')
+          return
+        }
+        if (parsed?.code === 'DAILY_LIMIT') {
+          handlers.onError?.('Daily limit reached. Come back after midnight IST.')
+          return
+        }
+        handlers.onError?.(parsed?.error || text || `Request failed (${response.status})`)
         return
       }
 

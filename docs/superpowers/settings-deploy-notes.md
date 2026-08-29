@@ -78,3 +78,22 @@ creation handles its follow-up notification as best-effort so a notification
 failure does not trigger a duplicate subscription on retry. Account and other
 multi-step applies still need transactional Postgres RPCs or idempotency keys
 before retries can be considered safe.
+
+## Fynn Pro (Razorpay)
+
+Migration: `20260829120000_fynn_pro.sql`
+
+```bash
+npx supabase db push --yes
+npx supabase secrets set RAZORPAY_KEY_ID=... RAZORPAY_KEY_SECRET=... RAZORPAY_WEBHOOK_SECRET=...
+npx supabase functions deploy fynn-create-order
+npx supabase functions deploy fynn-razorpay-webhook --no-verify-jwt
+npx supabase functions deploy fynn-chat
+npx supabase functions deploy fynn-confirm
+```
+
+Webhook URL (Razorpay dashboard, events `payment.captured`, `payment.failed`, `order.paid`):
+
+`https://<project-ref>.supabase.co/functions/v1/fynn-razorpay-webhook`
+
+Client: `EXPO_PUBLIC_RAZORPAY_KEY_ID` only (test or live key id). Native Checkout needs a development build: `npx expo run:android`. Expo Go cannot open Razorpay.

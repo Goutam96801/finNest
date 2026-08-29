@@ -43,6 +43,18 @@ const Profile = () => {
             bgColor: "#059669"
         },
         {
+            title: "Fynn Pro",
+            icon: (
+                <Icons.Crown
+                    size={26}
+                    color='#fff'
+                    weight='fill'
+                />
+            ),
+            routeName: '/fynn-pro',
+            bgColor: "#65a30d"
+        },
+        {
             title: "Privacy Policy",
             icon: (
                 <Icons.Lock

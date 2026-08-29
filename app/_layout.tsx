@@ -1,6 +1,7 @@
 import { AlertProvider } from '@/context/alertContext'
 import { AuthProvider, useAuth } from '@/context/authContext'
 import { PrefsProvider } from '@/context/prefsContext'
+import { FynnProProvider } from '@/context/fynnProContext'
 import { SubscriptionRemindersProvider } from '@/context/subscriptionRemindersContext'
 import { BottomSheetModalProvider } from '@gorhom/bottom-sheet'
 import { Stack, usePathname, useRootNavigationState, useRouter } from 'expo-router'
@@ -116,6 +117,7 @@ export default function RootLayout() {
         <AuthProvider>
           <PrefsProvider>
             <AlertProvider>
+              <FynnProProvider>
               <SubscriptionRemindersProvider>
               <SplashGate>
                 <Stack
@@ -130,6 +132,8 @@ export default function RootLayout() {
                   <Stack.Screen name="(auth)/register" />
                   <Stack.Screen name="transactions" />
                   <Stack.Screen name="subscriptions" />
+                  <Stack.Screen name="settings" />
+                  <Stack.Screen name="fynn-pro" />
                   <Stack.Screen name="(modals)/profileModal" options={modalOptions} />
                   <Stack.Screen name="(modals)/accountModal" options={modalOptions} />
                   <Stack.Screen name="(modals)/transactionModal" options={modalOptions} />
@@ -140,6 +144,7 @@ export default function RootLayout() {
                 </Stack>
               </SplashGate>
               </SubscriptionRemindersProvider>
+              </FynnProProvider>
             </AlertProvider>
           </PrefsProvider>
         </AuthProvider>

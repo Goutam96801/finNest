@@ -76,6 +76,23 @@ Deno.serve(async (req) => {
   const userMessage = String(body.message ?? '').trim()
   if (!userMessage) return json({ error: 'message is required' }, 400)
 
+  const { data: consume, error: consumeError } = await userClient.rpc('consume_fynn_message')
+  if (consumeError) return json({ error: consumeError.message }, 500)
+  const consumeRaw = typeof consume === 'string' ? JSON.parse(consume) : (consume ?? {})
+  const consumeResult = consumeRaw as { ok?: boolean; code?: string; used?: number; limit?: number; resets_at?: string }
+  if (!consumeResult.ok) {
+    if (consumeResult.code === 'DAILY_LIMIT') {
+      return json({
+        error: 'daily_limit',
+        code: 'DAILY_LIMIT',
+        used: consumeResult.used ?? 20,
+        limit: consumeResult.limit ?? 20,
+        resetsAt: consumeResult.resets_at ?? null,
+      }, 429)
+    }
+    return json({ error: 'subscription_required', code: 'SUBSCRIPTION_REQUIRED' }, 402)
+  }
+
   const { data: profile } = await userClient.from('profiles').select('currency, timezone').eq('id', user.id).single()
 
   // Get or create the chat.

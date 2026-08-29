@@ -1,8 +1,10 @@
 import ChatChart from '@/components/ai-support/ChatChart'
 import ChatMarkdown from '@/components/ai-support/ChatMarkdown'
+import FynnLockOverlay from '@/components/ai-support/FynnLockOverlay'
 import FynnSidebar from '@/components/ai-support/FynnSidebar'
 import ScreenWrapper from '@/components/ScreenWrapper'
 import Typo from '@/components/Typo'
+import { useFynnPro } from '@/context/fynnProContext'
 import {
   confirmFynnProposal,
   sendFynnMessageStream,
@@ -12,8 +14,9 @@ import {
   updateFynnProposalMessage,
 } from '@/lib/services/fynn'
 import { LinearGradient } from 'expo-linear-gradient'
+import { useFocusEffect } from 'expo-router'
 import { ArrowUp, Heart, List, Plus } from 'phosphor-react-native'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Animated,
   Keyboard,
@@ -132,6 +135,7 @@ function DaySeparator({ label }: { label: string }) {
 
 export default function Fynn() {
   const insets = useSafeAreaInsets()
+  const { locked, lockReason, refresh: refreshFynnPro } = useFynnPro()
   const heartScale = useRef(new Animated.Value(1)).current
   const [chats, setChats] = useState<Chat[]>([])
   const [activeChatId, setActiveChatId] = useState<string | null>(null)
@@ -175,6 +179,10 @@ export default function Fynn() {
 
     void loadChats()
   }, [])
+
+  useFocusEffect(useCallback(() => {
+    void refreshFynnPro()
+  }, [refreshFynnPro]))
 
   useEffect(() => {
     if (messages.length > 0) return
@@ -230,7 +238,7 @@ export default function Fynn() {
 
   const sendMessage = (text = draft) => {
     const cleanText = text.trim()
-    if (!cleanText || isSending) return
+    if (!cleanText || isSending || locked) return
 
     const timestamp = Date.now()
     const createdAt = new Date(timestamp).toISOString()
@@ -315,8 +323,12 @@ export default function Fynn() {
         if (!activeChatId) setActiveChatId(persistedChatId)
         setIsSending(false)
         abortRef.current = null
+        void refreshFynnPro()
       },
       onError: (message) => {
+        if (message.includes('Subscribe') || message.includes('Daily limit')) {
+          void refreshFynnPro()
+        }
         patchMessage(localChatId, assistantId, {
           isStreaming: false,
           thinking: undefined,
@@ -435,7 +447,7 @@ export default function Fynn() {
                 </Typo>
                 <View className="mt-[27px] w-full items-center gap-[9px]">
                   {starterPrompts.map((prompt) => (
-                    <TouchableOpacity key={prompt} disabled={isSending} onPress={() => sendMessage(prompt)} className="rounded-full border border-neutral-700 px-[15px] py-2.5">
+                    <TouchableOpacity key={prompt} disabled={isSending || locked} onPress={() => sendMessage(prompt)} className="rounded-full border border-neutral-700 px-[15px] py-2.5">
                       <Typo size={13} className="text-neutral-300">{prompt}</Typo>
                     </TouchableOpacity>
                   ))}
@@ -546,7 +558,7 @@ export default function Fynn() {
               value={draft}
               onChangeText={setDraft}
               onSubmitEditing={() => sendMessage()}
-              editable={!isSending}
+              editable={!isSending && !locked}
               placeholder="Ask Fynn..."
               placeholderTextColor="#737373"
               className="max-h-24 flex-1 py-[15px] text-[15px] leading-5 text-neutral-100"
@@ -554,8 +566,8 @@ export default function Fynn() {
               maxLength={500}
               returnKeyType="send"
             />
-            <TouchableOpacity accessibilityLabel="Send message" disabled={!draft.trim() || isSending} onPress={() => sendMessage()} className={`mb-1.5 h-[42px] w-[42px] items-center justify-center rounded-full ${draft.trim() && !isSending ? 'bg-lime-400' : 'bg-neutral-700'}`}>
-              <ArrowUp size={20} color={draft.trim() && !isSending ? '#171717' : '#737373'} weight="bold" />
+            <TouchableOpacity accessibilityLabel="Send message" disabled={!draft.trim() || isSending || locked} onPress={() => sendMessage()} className={`mb-1.5 h-[42px] w-[42px] items-center justify-center rounded-full ${draft.trim() && !isSending && !locked ? 'bg-lime-400' : 'bg-neutral-700'}`}>
+              <ArrowUp size={20} color={draft.trim() && !isSending && !locked ? '#171717' : '#737373'} weight="bold" />
             </TouchableOpacity>
           </View>
         </View>
@@ -563,6 +575,8 @@ export default function Fynn() {
           <View style={{ height: keyboardInset }} />
         ) : null}
       </KeyboardAvoidingView>
+
+      {locked && lockReason ? <FynnLockOverlay reason={lockReason} /> : null}
 
       <FynnSidebar
         open={isSidebarOpen}
