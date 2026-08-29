@@ -1,34 +1,9 @@
--- Audit trail for every write the AI actually executes on a user's behalf
--- (after they've confirmed a fynn_proposals row). Append-only from the app's
--- perspective — this is what would power a future "show me what Fynn changed"
--- or undo feature.
+-- ai_action_log (and its RLS policies) was created in 20260828000000_ai_chat.sql
+-- with a session_id pointing at chat_sessions. Fynn confirm writes against
+-- fynn_proposals / fynn_chats, so add those columns without recreating the table.
 
-CREATE TABLE IF NOT EXISTS public.ai_action_log (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  proposal_id uuid REFERENCES public.fynn_proposals(id) ON DELETE SET NULL,
-  chat_id uuid REFERENCES public.fynn_chats(id) ON DELETE SET NULL,
-  action text NOT NULL CHECK (action IN ('create', 'update', 'delete')),
-  entity text NOT NULL CHECK (entity IN ('transaction', 'subscription', 'account', 'category')),
-  entity_id uuid,
-  before_data jsonb,
-  after_data jsonb,
-  status text NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'failed')),
-  error_message text,
-  created_at timestamptz NOT NULL DEFAULT timezone('utc', now())
-);
+ALTER TABLE public.ai_action_log
+  ADD COLUMN IF NOT EXISTS proposal_id uuid REFERENCES public.fynn_proposals(id) ON DELETE SET NULL;
 
-CREATE INDEX IF NOT EXISTS ai_action_log_user_created_idx
-  ON public.ai_action_log (user_id, created_at DESC);
-
-ALTER TABLE public.ai_action_log ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view own ai action log"
-  ON public.ai_action_log FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own ai action log"
-  ON public.ai_action_log FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-GRANT ALL ON TABLE public.ai_action_log TO anon, authenticated, service_role;
+ALTER TABLE public.ai_action_log
+  ADD COLUMN IF NOT EXISTS chat_id uuid REFERENCES public.fynn_chats(id) ON DELETE SET NULL;
