@@ -49,11 +49,12 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/icon.png",
+          "icon": "./assets/images/notification-icon.png",
           "color": "#a3e635",
           "defaultChannel": "subscription-reminders"
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -70,7 +71,9 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/bb5e0457-ec52-461c-a1da-4872a8ab30d1"
+      "url": "https://u.expo.dev/bb5e0457-ec52-461c-a1da-4872a8ab30d1",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
     }
   }
 }

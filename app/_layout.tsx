@@ -1,3 +1,4 @@
+import { OtaUpdatesBootstrap } from '@/components/OtaUpdatesBootstrap'
 import { AlertProvider } from '@/context/alertContext'
 import { AuthProvider, useAuth } from '@/context/authContext'
 import { PrefsProvider } from '@/context/prefsContext'
@@ -113,6 +114,7 @@ const modalOptions = {
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      <OtaUpdatesBootstrap />
       <BottomSheetModalProvider>
         <AuthProvider>
           <PrefsProvider>
