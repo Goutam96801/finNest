@@ -54,7 +54,8 @@
           "defaultChannel": "subscription-reminders"
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
