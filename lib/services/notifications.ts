@@ -1,3 +1,4 @@
+import { presentOsNotification } from '@/lib/services/osNotifications'
 import { ResponseType } from '@/types'
 import { supabase } from '../supabase'
 
@@ -191,5 +192,8 @@ export async function createNotification(
     .single()
 
   if (error) return { success: false, msg: error.message }
-  return { success: true, data: mapNotification(data as NotificationRow) }
+
+  const mapped = mapNotification(data as NotificationRow)
+  void presentOsNotification(mapped)
+  return { success: true, data: mapped }
 }

@@ -3,6 +3,10 @@ import {
   getNotifications,
   type AppNotification,
 } from '@/lib/services/notifications'
+import {
+  ensureOsNotificationPermissions,
+  SUBSCRIPTION_REMINDER_CHANNEL,
+} from '@/lib/services/osNotifications'
 import { getNotificationSettings } from '@/lib/services/settings'
 import {
   getSubscriptions,
@@ -11,7 +15,7 @@ import {
 import * as Notifications from 'expo-notifications'
 import { Platform } from 'react-native'
 
-export const SUBSCRIPTION_REMINDER_CHANNEL = 'subscription-reminders'
+export { SUBSCRIPTION_REMINDER_CHANNEL }
 const ID_PREFIX = 'finnest-sub-'
 const REMINDER_HOUR = 9
 
@@ -25,15 +29,6 @@ type ReminderData = {
   name: string
   amount: number
 }
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-})
 
 function todayLocalStr() {
   const now = new Date()
@@ -63,27 +58,8 @@ function reminderIdentifier(subscriptionId: string, reminder: ReminderKind) {
   return `${ID_PREFIX}${subscriptionId}-${reminder}`
 }
 
-export async function ensureAndroidReminderChannel() {
-  if (Platform.OS !== 'android') return
-  await Notifications.setNotificationChannelAsync(SUBSCRIPTION_REMINDER_CHANNEL, {
-    name: 'Subscription reminders',
-    importance: Notifications.AndroidImportance.HIGH,
-    vibrationPattern: [0, 250, 250, 250],
-    lightColor: '#a3e635',
-    sound: 'default',
-  })
-}
-
 export async function ensureNotificationPermissions() {
-  await ensureAndroidReminderChannel()
-
-  const current = await Notifications.getPermissionsAsync()
-  let status = current.status
-  if (status !== 'granted') {
-    const requested = await Notifications.requestPermissionsAsync()
-    status = requested.status
-  }
-  return status === 'granted'
+  return ensureOsNotificationPermissions()
 }
 
 async function cancelFinNestSubscriptionSchedules() {
@@ -132,6 +108,8 @@ async function scheduleOne(
     content: {
       title: copy.title,
       body: copy.body,
+      subtitle: 'Reminder',
+      color: '#a3e635',
       data,
       sound: true,
       ...(Platform.OS === 'android' ? { channelId: SUBSCRIPTION_REMINDER_CHANNEL } : {}),

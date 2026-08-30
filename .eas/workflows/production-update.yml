@@ -2,7 +2,7 @@ name: Production OTA Update
 
 on:
   push:
-    branches: ['prod']
+    branches: ['master']
 
 jobs:
   checks:

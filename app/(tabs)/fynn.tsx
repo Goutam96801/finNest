@@ -15,7 +15,9 @@ import {
 } from '@/lib/services/fynn'
 import { LinearGradient } from 'expo-linear-gradient'
 import { useFocusEffect } from 'expo-router'
-import { ArrowUp, Heart, List, Plus } from 'phosphor-react-native'
+import VoiceRecorderBar from '@/components/ai-support/VoiceRecorderBar'
+import { transcribeAudio } from '@/lib/services/voiceTranscription'
+import { ArrowUp, Heart, List, Plus, Microphone } from 'phosphor-react-native'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Animated,
@@ -29,6 +31,10 @@ import {
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+
+const LINE_HEIGHT = 20
+const MAX_INPUT_LINES = 3
+const MAX_INPUT_HEIGHT = LINE_HEIGHT * MAX_INPUT_LINES
 
 type ChatMessage = {
   id: string
@@ -145,6 +151,8 @@ export default function Fynn() {
   const [expandedThinkingId, setExpandedThinkingId] = useState<string | null>(null)
   const [confirmingProposalIds, setConfirmingProposalIds] = useState<string[]>([])
   const [keyboardInset, setKeyboardInset] = useState(0)
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false)
+  const [inputContentHeight, setInputContentHeight] = useState(LINE_HEIGHT)
   const abortRef = useRef<(() => void) | null>(null)
   const scrollRef = useRef<ScrollView>(null)
 
@@ -215,6 +223,10 @@ export default function Fynn() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!draft) setInputContentHeight(LINE_HEIGHT)
+  }, [draft])
+
   const openSidebar = () => setIsSidebarOpen(true)
   const closeSidebar = () => setIsSidebarOpen(false)
 
@@ -229,9 +241,9 @@ export default function Fynn() {
     setChats((current) => current.map((chat) => (
       chat.id === chatId
         ? {
-            ...chat,
-            messages: chat.messages.map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
-          }
+          ...chat,
+          messages: chat.messages.map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
+        }
         : chat
     )))
   }
@@ -301,23 +313,23 @@ export default function Fynn() {
         setChats((current) => current.map((chat) => (
           chat.id === localChatId
             ? {
-                ...chat,
-                id: persistedChatId,
-                updatedAt: new Date().toISOString(),
-                messages: chat.messages.map((m) => {
-                  if (m.id === userMessage.id) return { ...m, id: userMessageId }
-                  if (m.id === assistantId) {
-                    return {
-                      ...m,
-                      id: messageId ?? m.id,
-                      isStreaming: false,
-                      thinking: undefined,
-                      text: m.text || (m.proposal ? m.proposal.summary : 'Done.'),
-                    }
+              ...chat,
+              id: persistedChatId,
+              updatedAt: new Date().toISOString(),
+              messages: chat.messages.map((m) => {
+                if (m.id === userMessage.id) return { ...m, id: userMessageId }
+                if (m.id === assistantId) {
+                  return {
+                    ...m,
+                    id: messageId ?? m.id,
+                    isStreaming: false,
+                    thinking: undefined,
+                    text: m.text || (m.proposal ? m.proposal.summary : 'Done.'),
                   }
-                  return m
-                }),
-              }
+                }
+                return m
+              }),
+            }
             : chat
         )))
         if (!activeChatId) setActiveChatId(persistedChatId)
@@ -378,25 +390,25 @@ export default function Fynn() {
       }
       setChats((current) => current.map((chat) => (
         chat.id === chatId
-            ? {
-              ...chat,
-              updatedAt: new Date().toISOString(),
-              messages: [
-                ...chat.messages.map((message) => (
-                  message.id === messageId && message.proposal
-                    ? { ...message, proposal: { ...message.proposal, status } }
-                    : message
-                )),
-                ...(action === 'accept'
-                  ? [{
-                      id: `${Date.now()}-confirmation`,
-                      role: 'assistant' as const,
-                      text: 'Transaction confirmed and applied.',
-                      createdAt: new Date().toISOString(),
-                    }]
-                  : []),
-              ],
-            }
+          ? {
+            ...chat,
+            updatedAt: new Date().toISOString(),
+            messages: [
+              ...chat.messages.map((message) => (
+                message.id === messageId && message.proposal
+                  ? { ...message, proposal: { ...message.proposal, status } }
+                  : message
+              )),
+              ...(action === 'accept'
+                ? [{
+                  id: `${Date.now()}-confirmation`,
+                  role: 'assistant' as const,
+                  text: 'Transaction confirmed and applied.',
+                  createdAt: new Date().toISOString(),
+                }]
+                : []),
+            ],
+          }
           : chat
       )))
     } finally {
@@ -549,27 +561,58 @@ export default function Fynn() {
 
         <View
           className="z-10 bg-[#171717] px-4 pt-2"
-          style={{
-            paddingBottom: keyboardInset > 0 ? 8 : Math.max(insets.bottom, 14),
-          }}
+          style={{ paddingBottom: keyboardInset > 0 ? 8 : Math.max(insets.bottom, 14) }}
         >
-          <View className="max-h-[120px] min-h-[54px] flex-row items-end rounded-[20px] bg-neutral-800 pl-[15px] pr-1.5">
-            <TextInput
-              value={draft}
-              onChangeText={setDraft}
-              onSubmitEditing={() => sendMessage()}
-              editable={!isSending && !locked}
-              placeholder="Ask Fynn..."
-              placeholderTextColor="#737373"
-              className="max-h-24 flex-1 py-[15px] text-[15px] leading-5 text-neutral-100"
-              multiline
-              maxLength={500}
-              returnKeyType="send"
+          {isRecordingVoice ? (
+            <VoiceRecorderBar
+              transcribe={transcribeAudio}
+              onTranscribed={(text) => {
+                setDraft(text)
+                setIsRecordingVoice(false)
+              }}
+              onCancel={() => setIsRecordingVoice(false)}
             />
-            <TouchableOpacity accessibilityLabel="Send message" disabled={!draft.trim() || isSending || locked} onPress={() => sendMessage()} className={`mb-1.5 h-[42px] w-[42px] items-center justify-center rounded-full ${draft.trim() && !isSending && !locked ? 'bg-lime-400' : 'bg-neutral-700'}`}>
-              <ArrowUp size={20} color={draft.trim() && !isSending && !locked ? '#171717' : '#737373'} weight="bold" />
-            </TouchableOpacity>
-          </View>
+          ) : (
+            <View className="min-h-[54px] flex-row items-end rounded-[20px] bg-neutral-800 pl-[15px] pr-1.5">
+              <TextInput
+                value={draft}
+                onChangeText={setDraft}
+                onContentSizeChange={(e) => setInputContentHeight(e.nativeEvent.contentSize.height)}
+                onSubmitEditing={() => sendMessage()}
+                editable={!isSending && !locked}
+                placeholder="Ask Fynn..."
+                placeholderTextColor="#737373"
+                className="flex-1 py-[15px] text-[15px] text-neutral-100"
+                style={{
+                  lineHeight: LINE_HEIGHT,
+                  height: Math.min(Math.max(inputContentHeight, LINE_HEIGHT), MAX_INPUT_HEIGHT),
+                }}
+                scrollEnabled={inputContentHeight > MAX_INPUT_HEIGHT}
+                multiline
+                maxLength={500}
+                returnKeyType="send"
+              />
+              {draft.trim() ? (
+                <TouchableOpacity
+                  accessibilityLabel="Send message"
+                  disabled={isSending || locked}
+                  onPress={() => sendMessage()}
+                  className="mb-1.5 h-[42px] w-[42px] items-center justify-center rounded-full bg-lime-400"
+                >
+                  <ArrowUp size={20} color="#171717" weight="bold" />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  accessibilityLabel="Record voice message"
+                  disabled={isSending || locked}
+                  onPress={() => setIsRecordingVoice(true)}
+                  className={`mb-1.5 h-[42px] w-[42px] items-center justify-center rounded-full ${isSending || locked ? 'bg-neutral-700' : 'bg-neutral-700'}`}
+                >
+                  <Microphone size={19} color={isSending || locked ? '#737373' : '#f5f5f5'} weight="bold" />
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
         </View>
         {Platform.OS === 'android' && keyboardInset > 0 ? (
           <View style={{ height: keyboardInset }} />
