@@ -4,6 +4,10 @@ on:
   push:
     branches: ['master']
 
+defaults:
+  tools:
+    node: 22.19.4
+
 jobs:
   checks:
     name: Lint, type-check, and validate config

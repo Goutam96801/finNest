@@ -12,6 +12,10 @@ on:
         default: preview
         required: true
 
+defaults:
+  tools:
+    node: 22.19.4
+
 jobs:
   build_android:
     name: Build Android
