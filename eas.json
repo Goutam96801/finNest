@@ -5,6 +5,7 @@
   },
   "build": {
     "preview": {
+      "node": "22.19.4",
       "distribution": "internal",
       "android": {
         "buildType": "apk"
@@ -13,6 +14,7 @@
       "environment": "preview"
     },
     "production": {
+      "node": "22.19.4",
       "android": {
         "buildType": "apk"
       },
