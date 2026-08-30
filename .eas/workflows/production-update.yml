@@ -13,6 +13,8 @@ jobs:
     name: Lint, type-check, and validate config
     steps:
       - uses: eas/checkout
+      - name: Check lockfile sync
+        run: node scripts/check-lockfile.js
       - uses: eas/install_node_modules
       - name: Lint
         run: npm run lint
