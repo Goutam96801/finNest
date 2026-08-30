@@ -147,7 +147,7 @@ const Statistics = () => {
   useEffect(() => {
     if (!hasLoadedOnce.current) return
     loadStats()
-  }, [period, accountId])
+  }, [period, accountId, loadStats])
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)

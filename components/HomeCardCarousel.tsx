@@ -59,7 +59,7 @@ const HomeCardCarousel = ({
     setPage(next)
   }
 
-  const pages: Array<{
+  const pages: {
     key: string
     title: string
     amount: number
@@ -67,7 +67,7 @@ const HomeCardCarousel = ({
     income: number
     expense: number
     isPrimary?: boolean
-  }> = [
+  }[] = [
     {
       key: 'total',
       title: 'Total Balance',

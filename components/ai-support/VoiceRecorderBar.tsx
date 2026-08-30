@@ -148,7 +148,7 @@ export default function VoiceRecorderBar({ transcribe, onTranscribed, onCancel, 
   if (phase === 'error') {
     return (
       <View className="min-h-[54px] flex-row items-center justify-between rounded-[20px] bg-neutral-800 px-4">
-        <Typo size={13} className="flex-1 text-neutral-400">Couldn't transcribe that.</Typo>
+        <Typo size={13} className="flex-1 text-neutral-400">Couldn&apos;t transcribe that.</Typo>
         <TouchableOpacity
           accessibilityLabel="Dismiss"
           onPress={onCancel}
