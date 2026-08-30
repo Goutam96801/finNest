@@ -1,4 +1,4 @@
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { TouchableOpacity } from 'react-native'
 import React from 'react'
 import { BackButtonProps } from '@/types'
 import { useRouter } from 'expo-router';
@@ -26,5 +26,3 @@ const BackButton = ({
 }
 
 export default BackButton
-
-const styles = StyleSheet.create({})

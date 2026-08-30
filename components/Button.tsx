@@ -1,4 +1,4 @@
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { TouchableOpacity, View } from 'react-native'
 import React from 'react'
 import { CustomButtonProps } from '@/types'
 import Loading from './Loading'
@@ -31,5 +31,3 @@ const Button = ({
 }
 
 export default Button
-
-const styles = StyleSheet.create({})

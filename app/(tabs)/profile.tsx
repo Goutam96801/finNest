@@ -10,7 +10,7 @@ import { Image } from 'expo-image'
 import { useRouter } from 'expo-router'
 import * as Icons from 'phosphor-react-native'
 import React from 'react'
-import { StyleSheet, TouchableOpacity, View } from 'react-native'
+import { TouchableOpacity, View } from 'react-native'
 import { showAlert } from '@/context/alertContext'
 import Animated, { FadeInDown } from 'react-native-reanimated'
 const Profile = () => {
@@ -97,7 +97,7 @@ const Profile = () => {
     }
 
     const handlePress = (item: accountOptionType) => {
-        if (item.title == 'Logout') {
+        if (item.title === 'Logout') {
             showLogoutAlert();
         }
         if (item.routeName) router.push(item.routeName);
@@ -172,5 +172,3 @@ const Profile = () => {
 }
 
 export default Profile
-
-const styles = StyleSheet.create({})

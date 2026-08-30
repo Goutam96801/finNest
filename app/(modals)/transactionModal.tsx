@@ -115,7 +115,7 @@ const TransactionModal = () => {
     return () => {
       active = false
     }
-  }, [user?.id, isEditing, transactionId])
+  }, [user?.id, isEditing, transactionId, router])
 
   const typeOptions = useMemo(() => transactionTypes, [])
 

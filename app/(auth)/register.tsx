@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { Pressable, View } from 'react-native'
 import { showAlert } from '@/context/alertContext'
 import React, { useRef, useState } from 'react'
 import ScreenWrapper from '@/components/ScreenWrapper'
@@ -114,5 +114,3 @@ const Register = () => {
 }
 
 export default Register
-
-const styles = StyleSheet.create({})

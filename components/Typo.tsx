@@ -1,4 +1,4 @@
-import { StyleSheet, Text, TextStyle, View } from 'react-native'
+import { Text, TextStyle } from 'react-native'
 import React from 'react'
 import { TypoProps } from '@/types'
 import { verticalScale } from '@/utils/styling'
